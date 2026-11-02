@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}Pengaturan{% endblock %}
+{% block isi %}
+{% set admin = pengguna.peran == "admin" %}
+{% if pengguna.sandi_bawaan %}
+<div class="info merah"><span class="i">!</span><div><b>Ganti kata sandi bawaan</b>Akun ini masih memakai kata sandi awal. Ganti sebelum aplikasi dipakai bersama.</div></div>
+{% endif %}
+<div class="grid lebar-kiri">
+  <div class="kartu">
+    <div class="kartu-kepala"><h1>Pengaturan</h1>{% if not admin %}<span class="status abu">hanya admin yang dapat mengubah</span>{% endif %}</div>
+    <form method="post" action="/pengaturan">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <fieldset style="border:0;margin:0;padding:0" {{ "disabled" if not admin }}>
+      <div class="kartu-isi">
+        <h3 style="margin-bottom:14px">Umum</h3>
+        <div class="form-grid">
+          <label class="isian">{{ label.nama_outlet }}<input type="text" name="nama_outlet" value="{{ cfg.nama_outlet }}" maxlength="100"></label>
+        </div>
+      </div>
+      <div class="kartu-isi">
+        <h3 style="margin-bottom:6px">Biaya persediaan</h3>
+        <p class="kecil" style="margin-top:0">Dipakai pada fungsi reward (Persamaan 31), EOQ K1, dan simulasi. Nilai awal adalah asumsi sementara; ganti dengan hasil wawancara pemilik.
+          Harga beli, biaya kehabisan (c<sub>s</sub>), dan masa simpan diatur per bahan di <a href="/bahan">Daftar Bahan Baku</a>.</p>
+        <div class="form-grid">
+          <label class="isian">{{ label.biaya_pesan }}<input type="text" inputmode="decimal" name="biaya_pesan" value="{{ cfg.biaya_pesan | isian }}" class="{{ 'asumsi' if cfg.biaya_pesan == C.BIAYA_PESAN }}">
+            <span class="ket">Mis. ongkos kirim/transport per belanja dibagi jumlah bahan yang biasanya dibeli sekaligus.</span></label>
+          <label class="isian">{{ label.biaya_simpan_persen }}<input type="text" inputmode="decimal" name="biaya_simpan_persen" value="{{ cfg.biaya_simpan_persen | isian }}" class="{{ 'asumsi' if cfg.biaya_simpan_persen == C.BIAYA_SIMPAN_PERSEN }}">
+            <span class="ket">0,1 berarti 0,1% dari harga beli per satuan per hari (listrik pendingin, ruang, modal tertahan).</span></label>
+        </div>
+      </div>
+      <div class="kartu-isi">
+        <h3 style="margin-bottom:6px">Pelatihan ulang</h3>
+        <div class="form-grid">
+          <label class="isian">{{ label.ql_episode }}<input type="text" inputmode="numeric" name="ql_episode" value="{{ cfg.ql_episode }}"><span class="ket">Tabel 5: 5.000 episode × 28 hari.</span></label>
+          <label class="isian">{{ label.ql_seed }}<input type="text" inputmode="numeric" name="ql_seed" value="{{ cfg.ql_seed }}"><span class="ket">Hanya pelatihan lengkap; makin banyak makin lama.</span></label>
+          <label class="cek penuh"><input type="checkbox" name="ql_tuning" {{ "checked" if cfg.ql_tuning }}> {{ label.ql_tuning }} (α ∈ {{ C.QL_TUNING_GRID.alpha | join(", ") }}, γ ∈ {{ C.QL_TUNING_GRID.gamma | join(", ") }})</label>
+          <label class="cek penuh"><input type="checkbox" name="xgb_grid_search" {{ "checked" if cfg.xgb_grid_search }}> {{ label.xgb_grid_search }} (108 kombinasi × 4 lipatan)</label>
+        </div>
+        {% if admin %}<div class="baris-tombol"><button class="tombol" type="submit">Simpan Pengaturan</button></div>{% endif %}
+      </div>
+      </fieldset>
+    </form>
+  </div>
+
+  <div>
+    <div class="kartu">
+      <div class="kartu-kepala"><h2>Ganti kata sandi</h2></div>
+      <form class="kartu-isi" method="post" action="/pengaturan/sandi" style="display:flex;flex-direction:column;gap:14px">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label class="isian">Kata sandi lama<input type="password" name="lama" required autocomplete="current-password"></label>
+        <label class="isian">Kata sandi baru (min. 8 karakter)<input type="password" name="baru" required minlength="8" autocomplete="new-password"></label>
+        <label class="isian">Ulangi kata sandi baru<input type="password" name="ulang" required minlength="8" autocomplete="new-password"></label>
+        <button class="tombol" type="submit">Ganti Kata Sandi</button>
+      </form>
+    </div>
+    <div class="kartu">
+      <div class="kartu-kepala"><h2>Parameter tetap</h2></div>
+      <div class="kartu-isi kecil">
+        <dl class="rincian">
+          <dt>Tingkat layanan Z</dt><dd>{{ C.Z_LAYANAN | angka(2) }} (95%)</dd>
+          <dt>Lead time L</dt><dd>{{ C.LEAD_TIME }} hari</dd>
+          <dt>Panjang episode</dt><dd>{{ C.QL_PANJANG_EPISODE }} hari</dd>
+          <dt>ε (eksplorasi)</dt><dd>{{ C.QL_EPS_AWAL | angka(2) }} → {{ C.QL_EPS_AKHIR | angka(2) }} (eksponensial)</dd>
+          <dt>Interval state</dt><dd>IP {{ C.QL_BIN_IP }}, D̂ {{ C.QL_BIN_D }}, E {{ C.QL_BIN_E }}, penanda 2</dd>
+          <dt>m maksimum otomatis</dt><dd>{{ C.QL_M_MAKS }} kelipatan</dd>
+          <dt>Fitur XGBoost</dt><dd>lag {{ C.LAGS | join(", ") }}, rolling {{ C.ROLL_WINDOW }} hari</dd>
+        </dl>
+        <p style="margin-bottom:0">Ubah di <code>config.py</code> bila diperlukan, lalu latih ulang.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="kartu">
+  <div class="kartu-kepala"><h2>Pengguna</h2></div>
+  <div class="tabel-wadah">
+  <table class="tabel rapat">
+    <thead><tr><th>Nama pengguna</th><th>Nama</th><th>Peran</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for u in pengguna_list %}
+      <tr class="{{ 'redup-baris' if not u.aktif }}"><td>{{ u.username }}</td><td>{{ u.nama }}</td><td>{{ u.peran | capitalize }}</td>
+        <td>{% if u.aktif %}<span class="status hijau">aktif</span>{% else %}<span class="status abu">nonaktif</span>{% endif %}
+          {% if u.sandi_bawaan %}<span class="status kuning">sandi bawaan</span>{% endif %}</td>
+        <td>{% if admin and u.id != pengguna.id %}
+          <form method="post" action="/pengaturan/pengguna/{{ u.id }}/nonaktif" style="display:inline"
+                data-konfirmasi="{{ 'Nonaktifkan' if u.aktif else 'Aktifkan' }} akun {{ u.username }}?">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="tombol kecil {{ 'merah garis' if u.aktif else 'garis' }}" type="submit">{{ "Nonaktifkan" if u.aktif else "Aktifkan" }}</button></form>
+          {% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if admin %}
+  <form class="kartu-isi" method="post" action="/pengaturan/pengguna">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <h3 style="margin-bottom:14px">Tambah pengguna</h3>
+    <div class="form-grid">
+      <label class="isian">Nama pengguna<input type="text" name="username" required maxlength="50" autocomplete="off"></label>
+      <label class="isian">Nama<input type="text" name="nama" maxlength="100"></label>
+      <label class="isian">Kata sandi (min. 8 karakter)<input type="password" name="sandi" required minlength="8" autocomplete="new-password"></label>
+      <label class="isian">Peran<select name="peran"><option value="staf">Staf (catat stok, lihat rekomendasi, buat pesanan)</option><option value="admin">Admin (semua, termasuk data master dan pelatihan)</option></select></label>
+    </div>
+    <div class="baris-tombol"><button class="tombol" type="submit">{{ ikon("tambah", "ikon-k") }} Tambah Pengguna</button></div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

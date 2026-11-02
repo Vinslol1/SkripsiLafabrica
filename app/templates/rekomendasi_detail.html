@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% set b = r.bahan %}
+{% block judul %}Rekomendasi {{ b.nama }}{% endblock %}
+{% block isi %}
+<div class="kartu">
+  <div class="kartu-kepala">
+    <h1>{{ b.nama }}</h1><span class="status abu">{{ b.sku }}</span>
+    {% if r.kritis %}<span class="status merah">{{ ikon("segitiga", "ikon-k") }} Kritis</span>{% else %}<span class="status hijau">Aman</span>{% endif %}
+    <div class="aksi"><a class="tautan-aksi" href="/rekomendasi?tanggal={{ r.tanggal }}">Kembali ke rekomendasi</a></div>
+  </div>
+  <div class="kartu-isi">
+    <div class="grid tiga">
+      <div class="statistik" style="padding:0"><span class="label">Rekomendasi pesan akhir hari {{ r.tanggal | tgl }}</span>
+        <span class="nilai">{{ r.jumlah | angka_pas }} <small>{{ b.satuan }}</small></span>
+        <span class="bawah">{{ r.jumlah | kemasan(b.kemasan_isi, b.kemasan_nama) }} · {{ "aksi terbaik Q-table" if r.sumber == "q_learning" else "aturan cadangan order-up-to (state belum pernah ditemui)" }}</span></div>
+      <div class="statistik" style="padding:0"><span class="label">Posisi stok vs ROP dinamis</span>
+        <span class="nilai {{ 'minus' if r.kritis }}">{{ r.posisi | stok }} <small>/ {{ r.rop | angka_pas }}</small></span>
+        <span class="bawah">stok {{ r.stok | stok }} + dalam perjalanan {{ r.dalam_perjalanan | stok }}</span></div>
+      <div class="statistik" style="padding:0"><span class="label">Pembanding K2 (order-up-to)</span>
+        <span class="nilai">{{ r.jumlah_k2 | angka_pas }} <small>{{ b.satuan }}</small></span>
+        <span class="bawah">target {{ r.target | angka_pas }} − posisi, dibulatkan ke kemasan {{ b.kemasan_isi | angka_pas }}</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="grid dua" style="margin-top:18px">
+  <div class="kartu">
+    <div class="kartu-kepala"><h2>Perhitungan (Persamaan 20–27)</h2></div>
+    <div class="kartu-isi">
+      <dl class="rincian">
+        <dt>Prediksi besok ŷ<sub>t+1</sub> = D̂</dt><dd>{{ r.prediksi[0] | angka_pas }} {{ b.satuan | lower }}</dd>
+        <dt>Prediksi lusa ŷ<sub>t+2</sub></dt><dd>{{ r.prediksi[1] | angka_pas }}</dd>
+        <dt>Simpangan baku galat σ<sub>e</sub></dt><dd>{{ r.sigma_e | angka_pas }}</dd>
+        <dt>ROP dinamis (21)</dt><dd><span class="rumus">{{ r.prediksi[0] | angka_pas }} + {{ Z | angka_pas }} × {{ r.sigma_e | angka_pas }} × √1 = {{ r.rop | angka_pas }}</span></dd>
+        <dt>Stok target OUT (25)</dt><dd><span class="rumus">{{ (r.prediksi[0] + r.prediksi[1]) | angka_pas }} + {{ Z | angka_pas }} × {{ r.sigma_e | angka_pas }} × √2 = {{ r.target | angka_pas }}</span></dd>
+        <dt>Posisi persediaan IP (24)</dt><dd>{{ r.stok | stok }} + {{ r.dalam_perjalanan | stok }} = {{ r.posisi | stok }}</dd>
+        <dt>Stok habis masa simpan besok E</dt><dd>{{ r.hampir_kedaluwarsa | angka_pas }}{% if r.kedaluwarsa > 0 %} (sudah lewat: {{ r.kedaluwarsa | angka_pas }}){% endif %}</dd>
+        <dt>Penanda IP ≤ ROP</dt><dd>{{ "1 (kritis)" if r.kritis else "0" }}</dd>
+        {% if info %}
+        <dt>State (27)</dt><dd>b(IP) = {{ info.bin[0] }}, b(D̂) = {{ info.bin[1] }}, b(E) = {{ info.bin[2] }}, penanda = {{ info.bin[3] }} <span class="kecil">(indeks {{ r.state }}, ditemui {{ info.n_state }} kali saat pelatihan)</span></dd>
+        <dt>Kapasitas simpan</dt><dd>{{ info.kap | angka_pas }} {{ b.satuan | lower }}
+          <span class="kecil">({{ "diisi di data master" if info.kap_manual else "otomatis dari data latih; isi Kapasitas Simpan Maks di data bahan bila diketahui" }})</span></dd>
+        <dt>Batas interval IP</dt><dd class="kecil">{{ info.edges.ip | map("angka_pas") | join(" · ") }}</dd>
+        <dt>Batas interval D̂</dt><dd class="kecil">{{ info.edges.d | map("angka_pas") | join(" · ") }}</dd>
+        {% endif %}
+      </dl>
+    </div>
+  </div>
+  <div class="kartu">
+    <div class="kartu-kepala"><h2>Nilai Q setiap aksi pada state ini</h2></div>
+    <div class="kartu-isi">
+      {% if info and info.dicoba %}
+      <div class="grafik"><canvas id="grafik-q"></canvas></div>
+      <p class="kecil">Aksi = memesan i × k ({{ info.k | angka_pas }} {{ b.satuan | lower }}), i = 0..{{ info.m }} (Persamaan 28). Nilai Q adalah perkiraan total biaya
+        ke depan yang didiskon (bernilai negatif); di antara aksi yang muat di kapasitas simpan, aksi dengan nilai tertinggi (biaya terendah) dipilih.
+        Batang abu-abu belum pernah dicoba pada state ini; batang bergaris merah melebihi kapasitas simpan.</p>
+      {% elif info %}
+      <p>State ini belum pernah ditemui selama pelatihan, sehingga sistem memakai aturan cadangan order-up-to K2 (Gambar 3).</p>
+      {% else %}
+      <p class="kecil">Q-table model yang membuat rekomendasi ini tidak lagi aktif.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="kartu">
+  <div class="kartu-kepala"><h2>Pemakaian 28 hari terakhir dan prediksi 7 hari</h2></div>
+  <div class="kartu-isi"><div class="grafik"><canvas id="grafik-prediksi"></canvas></div></div>
+  <div class="tabel-wadah">
+    <table class="tabel rapat"><thead><tr>{% for d in hari %}<th class="angka">{{ d | tgl }}</th>{% endfor %}</tr></thead>
+      <tbody><tr>{% for v in r.prediksi %}<td class="angka">{{ v | angka_pas }}</td>{% endfor %}</tr></tbody></table>
+  </div>
+</div>
+{% endblock %}
+{% block skrip %}
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script>
+(function () {
+  const W = PrediStok.warna, g = {{ grafik | json | safe }};
+  PrediStok.grafik("grafik-prediksi", { type: "line",
+    data: { labels: g.label.map(PrediStok.tanggal), datasets: [
+      { label: "Pemakaian aktual", data: g.aktual, borderColor: W.hijauTua, backgroundColor: "rgba(18,195,148,.1)", fill: true, tension: .2, pointRadius: 2 },
+      { label: "Prediksi XGBoost", data: g.prediksi, borderColor: W.biru, borderDash: [5, 4], tension: .2, pointRadius: 3 } ] },
+    options: { maintainAspectRatio: false, interaction: { mode: "index", intersect: false }, plugins: { legend: { position: "bottom" } },
+      scales: { y: { beginAtZero: true, ticks: { callback: (v) => PrediStok.angka(v) } } } } });
+  {% if info and info.dicoba %}
+  const aksi = {{ info.aksi | json | safe }}, pilih = {{ ((r.jumlah / info.k) | round | int) if r.sumber == "q_learning" else -1 }};
+  PrediStok.grafik("grafik-q", { type: "bar",
+    data: { labels: aksi.map((a) => PrediStok.angka(a.jumlah)), datasets: [{ label: "Q(s, a)",
+      data: aksi.map((a) => (a.n > 0 ? a.q : 0)),
+      backgroundColor: aksi.map((a) => (a.i === pilih ? W.hijau : !a.layak ? "rgba(229,57,59,.18)" : a.n > 0 ? "rgba(47,128,237,.55)" : "#d5dade")),
+      borderColor: aksi.map((a) => (a.layak ? "transparent" : W.merah)), borderWidth: aksi.map((a) => (a.layak ? 0 : 1)), borderDash: [4, 3] }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: {
+      label: (c) => "Q = " + PrediStok.angka(aksi[c.dataIndex].q) + " (dicoba " + aksi[c.dataIndex].n + " kali" + (aksi[c.dataIndex].layak ? ")" : ", melebihi kapasitas)") } } },
+      scales: { x: { title: { display: true, text: "Jumlah pesan ({{ b.satuan | lower }})" } }, y: { ticks: { callback: (v) => PrediStok.angka(v) } } } } });
+  {% endif %}
+})();
+</script>
+{% endblock %}

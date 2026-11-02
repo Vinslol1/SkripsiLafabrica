@@ -1,0 +1,3 @@
+# skrip Windows tetap CRLF, skrip shell tetap LF di komputer mana pun
+*.bat text eol=crlf
+*.sh text eol=lf

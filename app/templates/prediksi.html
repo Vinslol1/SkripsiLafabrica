@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}Prediksi Kebutuhan{% endblock %}
+{% block isi %}
+{% if model is none %}
+<div class="info merah"><span class="i">!</span><div><b>{{ "Belum ada model aktif" if t else "Belum ada data stok keluar" }}</b>
+  {{ "Latih model terlebih dahulu." if t else "Impor stok keluar harian terlebih dahulu." }}</div>
+  <a class="tautan" href="{{ '/pelatihan' if t else '/stok/keluar' }}">{{ "Pelatihan Ulang" if t else "Stok Keluar" }}</a></div>
+{% else %}
+{% if kurang %}
+<div class="info merah"><span class="i">!</span>
+  <div><b>Pemakaian 7 hari terakhir belum lengkap</b>Hari tanpa catatan: {% for d in kurang %}{{ d | tgl }}{{ ", " if not loop.last }}{% endfor %}.
+    Prediksi di bawah menganggap hari tersebut 0 sehingga bisa terlalu rendah; rekomendasi pemesanan tidak dihitung sampai datanya lengkap.</div>
+  <a class="tautan" href="/stok/keluar?tanggal={{ kurang[0] }}">Catat Stok Keluar</a></div>
+{% endif %}
+<div class="kartu">
+  <div class="kartu-kepala">
+    <h1>Prediksi Kebutuhan 7 Hari</h1>
+    <div class="aksi"><span class="kecil">Model #{{ model.run_id }} · data s.d. {{ model.data_sampai | tgl }}</span></div>
+  </div>
+  <div class="kartu-isi kecil">
+    Prediksi rekursif XGBoost untuk {{ hari[0] | tgl }} – {{ hari[-1] | tgl }} berdasarkan stok keluar yang tercatat sampai {{ t | tgl_panjang }}.
+    Pita pada grafik adalah prediksi ± Z·σ<sub>e</sub> (Z = 1,65), yaitu rentang yang dipakai untuk stok pengaman pada ROP dinamis.
+  </div>
+</div>
+
+{% if grafik %}
+<div class="kartu">
+  <div class="kartu-kepala">
+    <h2>{{ grafik.nama }} <span class="kecil">{{ grafik.sku }} · {{ grafik.satuan }}</span></h2>
+    <form class="aksi" method="get" action="/prediksi">
+      <input type="hidden" name="q" value="{{ q }}">
+      <select name="sku" data-otomatis aria-label="Pilih bahan" style="max-width:340px">
+        {% for r in rows %}<option value="{{ r.b.sku }}" {{ "selected" if r.b.sku == pilih }}>{{ r.b.nama }}</option>{% endfor %}
+      </select>
+    </form>
+  </div>
+  <div class="kartu-isi"><div class="grafik tinggi"><canvas id="grafik-prediksi"></canvas></div></div>
+</div>
+{% endif %}
+
+<div class="kartu">
+  <form class="saring" method="get" action="/prediksi">
+    <label class="cari">{{ ikon("cari") }}<input type="search" name="q" value="{{ q }}" placeholder="Cari bahan ..."></label>
+    {% if pilih %}<input type="hidden" name="sku" value="{{ pilih }}">{% endif %}
+    <span class="kanan-saring kecil">{{ rows | length }} bahan</span>
+  </form>
+  <div class="tabel-wadah" style="max-height:640px;overflow:auto">
+  <table class="tabel rapat">
+    <thead><tr><th>Bahan</th><th class="angka">Rata-rata 28 hari</th>
+      {% for d in hari %}<th class="angka">{{ d | tgl }}</th>{% endfor %}<th class="angka">Total 7 hari</th><th class="angka">σ<sub>e</sub></th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr class="{{ 'tebal' if r.b.sku == pilih }}">
+        <td><a href="?sku={{ r.b.sku }}&q={{ q }}" style="color:inherit">{{ r.b.nama }}</a><br><span class="kecil">{{ r.b.sku }} · {{ r.b.satuan }}</span></td>
+        <td class="angka">{{ r.rata28 | angka_pas }}</td>
+        {% for v in r.nilai %}<td class="angka">{{ v | angka_pas }}</td>{% endfor %}
+        <td class="angka tebal">{{ r.total | angka_pas }}</td>
+        <td class="angka">{{ r.sigma | angka_pas }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="{{ 4 + hari | length }}" class="kosong">Tidak ada bahan yang cocok.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+{% block skrip %}
+{% if grafik %}
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script>
+(function () {
+  const W = PrediStok.warna, g = {{ grafik | json | safe }};
+  PrediStok.grafik("grafik-prediksi", { type: "line",
+    data: { labels: g.label.map(PrediStok.tanggal), datasets: [
+      { label: "Rentang prediksi ± 1,65 × σe", data: g.atas, borderColor: "rgba(47,128,237,.0)", backgroundColor: "rgba(47,128,237,.12)", fill: "+1", pointRadius: 0 },
+      { label: "Batas bawah", data: g.bawah, borderColor: "rgba(47,128,237,.0)", pointRadius: 0, fill: false },
+      { label: "Pemakaian aktual", data: g.aktual, borderColor: W.hijauTua, backgroundColor: "rgba(18,195,148,.1)", fill: true, tension: .2, pointRadius: 2 },
+      { label: "Prediksi XGBoost", data: g.prediksi, borderColor: W.biru, borderDash: [5, 4], tension: .2, pointRadius: 3 } ] },
+    options: { maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+      plugins: { legend: { position: "bottom", labels: { filter: (i) => i.text !== "Batas bawah" } },
+        tooltip: { callbacks: { label: (c) => c.raw === null ? null : c.dataset.label + ": " + PrediStok.angka(c.raw) + " " + g.satuan.toLowerCase() } } },
+      scales: { y: { beginAtZero: true, ticks: { callback: (v) => PrediStok.angka(v) } } } } });
+})();
+</script>
+{% endif %}
+{% endblock %}

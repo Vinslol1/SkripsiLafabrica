@@ -1,0 +1,31 @@
+{% from "_ikon.html" import ikon %}
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Masuk · {{ NAMA_APLIKASI }}</title>
+  <link rel="icon" href="/static/img/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/app.css?v=1">
+</head>
+<body>
+<div class="masuk-wadah">
+  <div class="masuk-kartu">
+    <div class="logo"><span class="tanda">{{ ikon("kotak", "ikon", 2.2) }}</span><span class="kata">Predi<b>Stok</b></span></div>
+    <div class="kecil">Prediksi dan rekomendasi stok bahan baku · {{ nama_outlet }}</div>
+    {% if flash %}
+    <div class="kilat" style="margin:18px 0 0">
+      {% for f in flash %}<div class="{{ f.jenis }}"><span>{{ f.pesan }}</span></div>{% endfor %}
+    </div>
+    {% endif %}
+    <form method="post" action="/masuk">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="lanjut" value="{{ lanjut }}">
+      <label class="isian">Nama pengguna<input type="text" name="username" autocomplete="username" required autofocus></label>
+      <label class="isian">Kata sandi<input type="password" name="sandi" autocomplete="current-password" required></label>
+      <button class="tombol" type="submit">Masuk</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>

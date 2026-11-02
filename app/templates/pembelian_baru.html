@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}Tambah Pesanan{% endblock %}
+{% block isi %}
+<div class="kartu">
+  <div class="kartu-kepala"><h1>Tambah Pesanan Pembelian</h1>
+    <div class="aksi"><a class="tautan-aksi" href="/pembelian">Kembali</a></div></div>
+  <form class="kartu-isi" method="post" action="/pembelian/baru">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="form-grid">
+      <label class="isian">Tanggal pesan<input type="date" name="tanggal_pesan" value="{{ t }}" required>
+        <span class="ket">Perkiraan tiba = tanggal pesan + lead time bahan.</span></label>
+      <label class="isian">Pemasok<input type="text" name="pemasok" maxlength="100" placeholder="opsional"></label>
+      <label class="isian penuh">Catatan<input type="text" name="catatan" placeholder="opsional"></label>
+    </div>
+    <h3 style="margin:24px 0 10px">Bahan</h3>
+    <table class="tabel rapat">
+      <thead><tr><th>Bahan</th><th class="angka">Jumlah (satuan dasar)</th><th>Satuan</th><th></th></tr></thead>
+      <tbody id="baris-pesanan">
+        <tr>
+          <td><select name="bahan_id" data-bahan-pesan style="width:100%;max-width:420px">
+            <option value="">Pilih bahan ...</option>
+            {% for b in bahan %}<option value="{{ b.id }}" data-isi="{{ b.kemasan_isi }}" data-kemasan="{{ b.kemasan_nama | lower }}" data-satuan="{{ b.satuan }}">{{ b.nama }} ({{ b.sku }})</option>{% endfor %}
+          </select></td>
+          <td class="angka"><input class="kecil angka-isi" type="text" inputmode="decimal" name="jumlah" data-keluaran="kem-0"><div class="kecil keluaran-kemasan" id="kem-0"></div></td>
+          <td data-satuan></td>
+          <td><button class="tautan-aksi" type="button" data-hapus-baris title="Hapus baris" style="color:var(--merah)">{{ ikon("sampah", "ikon-k") }}</button></td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="margin-top:10px"><button class="tautan-aksi" type="button" data-tambah-baris="baris-pesanan">{{ ikon("tambah", "ikon-k") }} Tambah baris</button></div>
+    <div class="baris-tombol"><a class="tombol garis" href="/pembelian">Batal</a><button class="tombol" type="submit">Simpan Pesanan</button></div>
+  </form>
+</div>
+{% endblock %}

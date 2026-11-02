@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}Daftar Bahan Baku{% endblock %}
+{% block isi %}
+<div class="kartu">
+  <div class="kartu-kepala">
+    <h1>Daftar Bahan Baku <span class="bintang">{{ ikon("bintang", "ikon", 1.6) }}</span></h1>
+    <div class="aksi">
+      <a class="tautan-aksi" href="/bahan/berkas/template" title="Unduh template data master untuk dilengkapi">{{ ikon("riwayat") }}</a>
+      <button class="tautan-aksi" type="button" data-buka-modal="modal-impor">Impor Bahan Baku</button>
+      <a class="tautan-aksi" href="/bahan/berkas/ekspor">Ekspor Bahan Baku</a>
+      <a class="tombol" href="/bahan/tambah">{{ ikon("tambah") }} Tambah Bahan Baku</a>
+    </div>
+  </div>
+  {% if n_asumsi %}
+  <div class="kartu-isi" style="padding-bottom:0">
+    <div class="info kuning">
+      <span class="i">!</span>
+      <div><b>{{ n_asumsi }} bahan masih memakai nilai sementara</b>
+        Harga beli, ukuran kemasan, masa simpan, lead time, atau biaya kehabisan pada bahan bertanda <span class="lencana-asumsi">sementara</span> masih perkiraan.
+        Unduh template, ganti sel berwarna kuning dengan data sebenarnya, lalu impor kembali.</div>
+      <a class="tautan" href="/bahan/berkas/template">Unduh Template</a>
+    </div>
+  </div>
+  {% endif %}
+  <form class="saring" method="get" action="/bahan">
+    <label class="cari">{{ ikon("cari") }}<input type="search" name="q" value="{{ q }}" placeholder="Cari ..."></label>
+    <select name="kategori" data-otomatis>
+      <option value="">Semua Kategori</option>
+      {% for k in kategori_list %}<option value="{{ k }}" {{ "selected" if k == kategori }}>{{ k }}</option>{% endfor %}
+    </select>
+    <div class="kanan-saring">
+      <span class="kecil">{{ total }} bahan</span>
+      <select name="tampil" data-otomatis>
+        {% for n in [25, 50, 100, 500] %}<option value="{{ n }}" {{ "selected" if n == tampil }}>Tampilkan {{ n }}</option>{% endfor %}
+      </select>
+    </div>
+  </form>
+  <form method="post" action="/bahan/hapus-terpilih" data-konfirmasi="Hapus semua bahan baku yang dipilih?">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="saring" data-aksi-terpilih hidden style="background:#fafcfc">
+      <b><span data-jumlah-terpilih>0</span> bahan dipilih</b>
+      <button class="tombol merah garis kecil" type="submit">{{ ikon("sampah", "ikon-k") }} Hapus</button>
+    </div>
+    <div class="tabel-wadah">
+    <table class="tabel" id="tabel-bahan">
+      <thead><tr>
+        <th class="pilih"><input type="checkbox" data-pilih-semua aria-label="Pilih semua"></th>
+        <th>SKU</th>
+        <th>Nama</th>
+        <th data-kolom="kategori">Kategori</th>
+        <th data-kolom="kemasan">Kemasan Beli</th>
+        <th data-kolom="harga" class="angka">Harga Beli / Satuan</th>
+        <th data-kolom="masa" class="angka">Masa Simpan</th>
+        <th data-kolom="minimum" class="angka">Stok Minimum</th>
+        <th>Satuan</th>
+        <th class="kol-tambah">
+          <div class="tarik kanan" data-kolom-tabel="tabel-bahan">
+            <button class="pemicu ikon-saja bulat-tambah" type="button" title="Tampilkan kolom">{{ ikon("tambah", "ikon-k", 2.4) }}</button>
+            <div class="daftar">
+              <label><input type="checkbox" value="kategori"> Kategori</label>
+              <label><input type="checkbox" value="kemasan"> Kemasan Beli</label>
+              <label><input type="checkbox" value="harga"> Harga Beli</label>
+              <label><input type="checkbox" value="masa"> Masa Simpan</label>
+              <label><input type="checkbox" value="minimum" checked> Stok Minimum (ROP)</label>
+            </div>
+          </div>
+        </th>
+      </tr></thead>
+      <tbody>
+      {% for b in rows %}
+        <tr>
+          <td class="pilih"><input type="checkbox" name="pilih" value="{{ b.id }}" aria-label="Pilih {{ b.nama }}"></td>
+          <td>{{ b.sku }}</td>
+          <td><a href="/bahan/{{ b.id }}" style="color:inherit">{{ b.nama }}</a>
+            {% if b.asumsi %}<span class="lencana-asumsi" title="Nilai sementara: {{ b.asumsi | replace(',', ', ') | replace('_', ' ') }}">sementara</span>{% endif %}
+            {% if not b.monitor %}<span class="status abu">tidak dimonitor</span>{% endif %}</td>
+          <td data-kolom="kategori">{{ b.kategori }}</td>
+          <td data-kolom="kemasan">{{ b.kemasan_nama }} {{ b.kemasan_isi | angka_pas }} {{ b.satuan | lower }}</td>
+          <td data-kolom="harga" class="angka">{{ b.harga_satuan | rupiah(2) }}</td>
+          <td data-kolom="masa" class="angka">{{ b.masa_simpan }} hari</td>
+          <td data-kolom="minimum" class="angka">{{ b.stok_minimum | angka_pas }}</td>
+          <td>{{ b.satuan }}</td>
+          <td class="kol-tambah">
+            <div class="tarik kanan">
+              <button class="pemicu ikon-saja" type="button" aria-label="Aksi">{{ ikon("titik") }}</button>
+              <div class="daftar">
+                <a href="/bahan/{{ b.id }}">Ubah</a>
+                <a href="/stok/{{ b.id }}">Kartu Stok</a>
+                <button class="bahaya" type="submit" formaction="/bahan/{{ b.id }}/hapus" data-konfirmasi="Hapus {{ b.nama }}?">Hapus</button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="10" class="kosong">Belum ada bahan baku{{ " yang cocok" if q }}.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </form>
+  {% set n_hal = ((total + tampil - 1) // tampil) %}
+  {% if n_hal > 1 %}
+  <div class="halaman">
+    {% for h in range(1, n_hal + 1) %}
+      <a href="?q={{ q }}&kategori={{ kategori }}&tampil={{ tampil }}&hal={{ h }}" class="{{ 'aktif' if h == hal }}">{{ h }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="modal-latar" id="modal-impor">
+  <div class="modal">
+    <div class="kartu-kepala"><h2>Impor Bahan Baku</h2><button class="tutup-modal" type="button">&times;</button></div>
+    <form class="kartu-isi" method="post" action="/bahan/berkas/impor" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <p style="margin-top:0">Pilih file <b>Ekspor Daftar Bahan Baku</b> dari majoo, atau file template PrediStok yang sudah dilengkapi.
+        Bahan dicocokkan berdasarkan SKU. Stok Minimum dari majoo tidak menimpa ROP dinamis bahan yang sudah ada.</p>
+      <div class="unggah"><input type="file" name="berkas" accept=".xlsx" required></div>
+      <div class="baris-tombol">
+        <button class="tombol garis tutup-modal" type="button">Batal</button>
+        <button class="tombol" type="submit" data-memproses="Mengimpor...">Impor</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

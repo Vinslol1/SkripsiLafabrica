@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}Catatan Barang Masuk{% endblock %}
+{% block isi %}
+{% set warna = {"dipakai": "hijau", "perlu dicek": "kuning", "belum ada di data bahan": "merah"} %}
+{% if not cakupan %}
+<div class="info"><span class="i">i</span>
+  <div><b>Belum ada catatan barang masuk</b>Tempel laporan WhatsApp cafe ("REPORT ORDER tanggal ..." dan "barang masuk hari ini tanggal ...")
+    atau impor file .txt/.xlsx. Barang masuk dipakai Simulasi K1 aktual.</div></div>
+{% else %}
+{% set jd = cakupan.jendela %}
+<div class="info {{ 'hijau' if jd | length >= 7 else 'kuning' }}"><span class="i">{{ 'i' if jd | length >= 7 else '!' }}</span>
+  <div><b>Barang masuk tercatat {{ cakupan.mulai | tgl }} – {{ cakupan.sampai | tgl }} ({{ cakupan.n_hari }} hari laporan)</b>
+    {% if jd %}Stok keluar tercatat sampai {{ cakupan.pakai_sampai | tgl }}, jadi K1 aktual bisa memutar ulang {{ jd | length }} hari
+      ({{ jd[0] | tgl }} – {{ jd[-1] | tgl }}).
+    {% else %}Stok keluar baru tercatat sampai {{ cakupan.pakai_sampai | tgl if cakupan.pakai_sampai else "-" }}, belum beririsan dengan barang masuk.{% endif %}
+    {% if cakupan.sampai > (jd[-1] if jd else cakupan.mulai) and cakupan.pakai_sampai and cakupan.pakai_sampai < cakupan.sampai %}
+      Impor stok keluar majoo sampai {{ cakupan.sampai | tgl }} di <a href="/stok/keluar">Stok Keluar Harian</a>, lalu jalankan
+      <a href="/pelatihan">Pelatihan Ulang</a> agar K1 aktual memakai seluruh catatan.{% endif %}
+    {% if cakupan.bolong %}Tanggal tanpa laporan barang masuk: {% for d in cakupan.bolong %}{{ d | tgl }}{{ ", " if not loop.last }}{% endfor %} (K1 aktual berhenti sebelum tanggal ini).{% endif %}
+  </div></div>
+{% endif %}
+
+<div class="kartu">
+    <div class="kartu-kepala">
+      <h1>Catatan Barang Masuk</h1>
+      <div class="aksi">
+        <button class="tautan-aksi" type="button" data-buka-modal="modal-tempel">{{ ikon("tambah") }} Tempel Catatan WhatsApp</button>
+        <button class="tautan-aksi" type="button" data-buka-modal="modal-impor">{{ ikon("unggah") }} Impor File</button>
+        {% if cakupan %}<a class="tautan-aksi" href="/stok/catatan/unduh">{{ ikon("unduh") }} Unduh Excel</a>{% endif %}
+      </div>
+    </div>
+    <div class="kartu-isi kecil" style="padding-bottom:0">
+      Laporan harian cafe dirapikan per baris: nama barang dicocokkan dengan data bahan dan jumlahnya diubah ke satuan dasar majoo.
+      Baris berstatus <span class="status hijau">dipakai</span> dan <span class="status kuning">perlu dicek</span> menjadi barang masuk pada
+      simulasi <b>K1 aktual</b>. Catatan ini tidak mengubah Daftar Stok.
+    </div>
+    <form class="saring" method="get" action="/stok/catatan">
+      <div class="segmen">
+        <a href="?jenis=masuk&tanggal={{ 'semua' if semua else (t or '') }}&status={{ status }}" class="{{ 'aktif' if jenis == 'masuk' }}">Barang masuk</a>
+        <a href="?jenis=order&tanggal={{ 'semua' if semua else (t or '') }}&status={{ status }}" class="{{ 'aktif' if jenis == 'order' }}">Order</a>
+      </div>
+      <input type="hidden" name="jenis" value="{{ jenis }}">
+      <label class="isian" style="flex-direction:row;align-items:center;gap:10px;max-width:100%">Tanggal
+        <select name="tanggal" data-otomatis style="min-width:0;max-width:100%;flex:1">
+          <option value="semua" {{ 'selected' if semua }}>Semua tanggal</option>
+          {% for h in hari %}<option value="{{ h.tanggal }}" {{ 'selected' if t == h.tanggal }}>{{ h.tanggal | tgl }} · {{ h.masuk }} masuk, {{ h.order }} order{{ ", %d perlu dicek" | format(h.cek) if h.cek }}</option>{% endfor %}
+        </select></label>
+      <label class="isian" style="flex-direction:row;align-items:center;gap:10px;max-width:100%">Status
+        <select name="status" data-otomatis style="min-width:0;max-width:100%;flex:1">
+          <option value="">Semua status</option>
+          {% for s in SEMUA_STATUS %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ s }} ({{ n_status.get(s, 0) }})</option>{% endfor %}
+        </select></label>
+      <label class="cari">{{ ikon("cari") }}<input type="search" placeholder="Saring baris ..." data-saring-tabel="tabel-catatan"></label>
+    </form>
+    <div class="tabel-wadah" style="max-height:620px;overflow:auto">
+    <table class="tabel rapat" id="tabel-catatan">
+      <thead><tr>{% if semua %}<th>Tanggal</th>{% endif %}<th>Bagian</th><th>Catatan asli</th><th>Bahan</th>
+        <th class="angka">Jumlah (satuan dasar)</th><th>Status</th><th>Asumsi / perlu dicek</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>{% if semua %}<td>{{ r.tanggal | tgl }}</td>{% endif %}
+          <td class="kecil">{{ r.bagian }}</td>
+          <td>{{ r.teks.lstrip("-*• ") }}{% if r.tanggal_tertulis and r.tanggal_tertulis != r.tanggal %}<br><span class="kecil">tertulis {{ r.tanggal_tertulis | tgl }}</span>{% endif %}</td>
+          <td>{% if r.bahan %}{{ r.bahan.nama }} <span class="kecil">{{ r.bahan.sku }}</span>{% else %}<span class="kecil">-</span>{% endif %}</td>
+          <td class="angka">{% if r.jumlah_dasar is not none %}{{ r.jumlah_dasar | angka_pas }} <span class="kecil">{{ r.bahan.satuan if r.bahan }}</span>{% else %}<span class="kecil">-</span>{% endif %}
+            {% if r.konversi %}<br><span class="kecil">{{ r.konversi }}</span>{% endif %}</td>
+          <td><span class="status {{ warna.get(r.status, 'abu') }}">{{ r.status }}</span></td>
+          <td class="kecil">{{ r.asumsi }}</td></tr>
+      {% else %}
+        <tr><td colspan="7" class="kosong">Tidak ada baris.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="kartu-isi" style="display:flex;gap:18px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap">
+      <details class="kecil" style="flex:1;min-width:280px">
+        <summary class="tebal">Arti status</summary>
+        <dl class="rincian" style="margin-top:8px">
+          {% for s in SEMUA_STATUS %}<dt><span class="status {{ warna.get(s, 'abu') }}">{{ s }}</span></dt><dd style="font-weight:400">{{ ARTI_STATUS[s] }}</dd>{% endfor %}
+        </dl>
+      </details>
+      {% if t and not semua %}
+      <form method="post" action="/stok/catatan/hapus" data-konfirmasi="Hapus semua baris catatan {{ 'barang masuk' if jenis == 'masuk' else 'order' }} {{ t | tgl }}?">
+        <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="tanggal" value="{{ t }}"><input type="hidden" name="jenis" value="{{ jenis }}">
+        <button class="tautan-aksi" type="submit" style="font-size:13.5px">Hapus catatan {{ 'barang masuk' if jenis == 'masuk' else 'order' }} {{ t | tgl }}</button>
+      </form>
+      {% endif %}
+    </div>
+</div>
+
+<div class="modal-latar" id="modal-tempel">
+  <div class="modal">
+    <div class="kartu-kepala"><h2>Tempel Catatan WhatsApp</h2><button class="tutup-modal" type="button">&times;</button></div>
+    <form class="kartu-isi" method="post" action="/stok/catatan/tempel">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <p style="margin-top:0">Tempel satu atau beberapa laporan sekaligus. Judul laporan yang dikenali:</p>
+      <ul style="margin-top:0;padding-left:18px">
+        <li><b>REPORT ORDER tanggal 2-november-2026</b> (order hari itu, datang besoknya)</li>
+        <li><b>barang masuk hari ini tanggal 2-november-2026</b></li>
+      </ul>
+      <p class="kecil">Catatan untuk tanggal yang sudah ada akan menggantikan catatan lama tanggal itu.</p>
+      <label class="isian">Teks catatan<textarea name="teks" rows="14" required placeholder="REPORT ORDER tanggal 2-november-2026&#10;*Lafabrica bar (depan)*&#10;- beans house blend 1000gr (2pack)&#10;..."></textarea></label>
+      <div class="baris-tombol"><button class="tombol garis tutup-modal" type="button">Batal</button><button class="tombol" type="submit" data-memproses="Merapikan...">Rapikan dan Simpan</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-latar" id="modal-impor">
+  <div class="modal">
+    <div class="kartu-kepala"><h2>Impor Catatan</h2><button class="tutup-modal" type="button">&times;</button></div>
+    <form class="kartu-isi" method="post" action="/stok/catatan/impor" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <p style="margin-top:0">Format yang diterima:</p>
+      <ol style="margin-top:0;padding-left:18px">
+        <li><b>.txt</b> berisi tempelan laporan WhatsApp (sama seperti Tempel Catatan).</li>
+        <li><b>.xlsx</b> hasil <i>Unduh Excel</i> yang sudah dicek dan dikoreksi. Yang dibaca: Tanggal, Bagian, Catatan Asli, SKU,
+          Jumlah (Satuan Dasar), dan Status pada lembar Barang Masuk dan Order.</li>
+      </ol>
+      <label class="isian">File<input type="file" name="berkas" accept=".txt,.xlsx" required></label>
+      <div class="baris-tombol"><button class="tombol garis tutup-modal" type="button">Batal</button><button class="tombol" type="submit" data-memproses="Mengimpor...">Impor</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}

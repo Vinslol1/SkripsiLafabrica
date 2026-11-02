@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}Kartu Stok {{ b.nama }}{% endblock %}
+{% block isi %}
+<div class="kartu">
+  <div class="kartu-kepala">
+    <h1>Kartu Stok: {{ b.nama }}</h1>
+    <span class="status abu">{{ b.sku }}</span>
+    <div class="aksi">
+      <a class="tautan-aksi" href="/bahan/{{ b.id }}">Ubah data bahan</a>
+      <a class="tautan-aksi" href="/stok?mulai={{ mulai }}&sampai={{ sampai }}">Kembali ke Daftar Stok</a>
+    </div>
+  </div>
+  <form class="saring" method="get">
+    <span class="rentang">{{ ikon("kalender", "ikon", 1.8) }}
+      <input type="date" name="mulai" value="{{ mulai }}" data-otomatis> - <input type="date" name="sampai" value="{{ sampai }}" data-otomatis></span>
+    <div class="kanan-saring kecil">Satuan {{ b.satuan }} · kemasan {{ b.kemasan_nama }} {{ b.kemasan_isi | angka_pas }} · masa simpan {{ b.masa_simpan }} hari · stok minimum (ROP) {{ b.stok_minimum | angka_pas }}</div>
+  </form>
+  <div class="kartu-isi"><div class="grafik"><canvas id="grafik-kartu"></canvas></div></div>
+</div>
+
+<div class="grid lebar-kiri" style="margin-top:18px">
+  <div class="kartu">
+    <div class="kartu-kepala"><h2>Mutasi harian</h2></div>
+    <div class="tabel-wadah" style="max-height:520px;overflow:auto">
+    <table class="tabel rapat">
+      <thead><tr><th>Tanggal</th><th class="angka">Awal</th><th class="angka">Masuk</th><th class="angka">Keluar</th>
+        <th class="angka">Terbuang</th><th class="angka">Opname</th><th class="angka">Akhir</th></tr></thead>
+      <tbody>
+      {% for h in harian %}
+        <tr><td class="nowrap">{{ h.tanggal | tgl }}</td><td class="angka">{{ h.awal | stok }}</td><td class="angka">{{ h.masuk | stok }}</td>
+          <td class="angka">{{ h.keluar | stok }}</td><td class="angka">{{ h.terbuang | stok }}</td>
+          <td class="angka">{% if h.opname == h.opname %}{{ h.opname | stok }}{% if h.selisih|abs > 0.000001 %} <span class="kecil">({{ "+" if h.selisih > 0 }}{{ h.selisih | angka_pas }})</span>{% endif %}{% else %}<span class="redup">-</span>{% endif %}</td>
+          <td class="angka tebal {{ 'redup' if not h.diketahui else ('minus' if h.akhir < -0.000001) }}" {% if not h.diketahui %}title="belum pernah diopname: stok awal dianggap 0"{% endif %}>{{ h.akhir | stok }}</td></tr>
+      {% else %}<tr><td colspan="7" class="kosong">Belum ada mutasi pada periode ini.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  <div>
+    <div class="kartu">
+      <div class="kartu-kepala"><h2>Umur stok (FIFO) per {{ sampai | tgl }}</h2></div>
+      {% if not diketahui %}
+      <div class="kartu-isi kecil">Stok fisik belum diketahui karena bahan ini belum pernah diopname.</div>
+      {% else %}
+      <table class="tabel rapat">
+        <thead><tr><th>Diterima</th><th class="angka">Sisa</th><th class="angka">Umur</th><th>Kedaluwarsa</th></tr></thead>
+        <tbody>
+        {% for x in batches %}
+          <tr><td>{{ x.tanggal | tgl }}</td><td class="angka">{{ x.jumlah | angka_pas }}</td><td class="angka">{{ x.umur }} hari</td>
+            <td>{% if x.umur >= b.masa_simpan %}<span class="status merah">lewat {{ x.kedaluwarsa | tgl }}</span>
+              {% elif x.umur >= b.masa_simpan - b.lead_time %}<span class="status kuning">{{ x.kedaluwarsa | tgl }}</span>
+              {% else %}{{ x.kedaluwarsa | tgl }}{% endif %}</td></tr>
+        {% else %}<tr><td colspan="4" class="kosong">Stok kosong.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+    <div class="kartu">
+      <div class="kartu-kepala"><h2>Catatan masuk, opname, terbuang</h2></div>
+      <ul class="daftar-ringkas">
+        {% for m in mutasi[:30] %}
+        <li><span class="status {{ {'masuk': 'hijau', 'opname': 'biru', 'terbuang': 'merah'}[m.jenis] }}">{{ m.jenis }}</span>
+          <span>{{ m.tanggal | tgl }}<br><span class="kecil">{{ m.keterangan }}</span></span>
+          <span class="kanan-li tebal">{{ m.jumlah | angka_pas }}</span></li>
+        {% else %}<li class="kecil">Belum ada catatan.</li>{% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block skrip %}
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script>
+(function () {
+  const g = {{ grafik | json | safe }}, W = PrediStok.warna, minimum = {{ b.stok_minimum or 0 }};
+  PrediStok.grafik("grafik-kartu", {
+    type: "line",
+    data: { labels: g.label.map(PrediStok.tanggal), datasets: [
+      { label: "Stok akhir", data: g.akhir, borderColor: W.hijauTua, backgroundColor: "rgba(18,195,148,.12)", fill: true, tension: .2, pointRadius: 0 },
+      { label: "Stok keluar", data: g.keluar, borderColor: W.biru, borderDash: [4, 3], pointRadius: 0, tension: .2 },
+      { label: "Stok minimum (ROP) saat ini", data: g.label.map(() => minimum), borderColor: W.merah, borderWidth: 1.5, pointRadius: 0 },
+    ] },
+    options: { maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+      plugins: { legend: { position: "bottom" }, tooltip: { callbacks: { label: (c) => c.dataset.label + ": " + PrediStok.angka(c.parsed.y) } } },
+      scales: { y: { ticks: { callback: (v) => PrediStok.angka(v) } } } },
+  });
+})();
+</script>
+{% endblock %}

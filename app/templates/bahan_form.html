@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% set asumsi = b.daftar_asumsi %}
+{% macro tanda(kunci) %}{% if kunci in asumsi %}<span class="lencana-asumsi">sementara</span>{% endif %}{% endmacro %}
+{% block judul %}{{ "Tambah Bahan Baku" if baru else b.nama }}{% endblock %}
+{% block isi %}
+<div class="kartu">
+  <div class="kartu-kepala">
+    <h1>{{ "Tambah Bahan Baku" if baru else "Ubah Bahan Baku" }}</h1>
+    <div class="aksi">
+      {% if not baru %}<a class="tautan-aksi" href="/stok/{{ b.id }}">{{ ikon("mata") }} Kartu Stok</a>{% endif %}
+      <a class="tautan-aksi" href="/bahan">Kembali ke daftar</a>
+    </div>
+  </div>
+  {% if galat %}
+  <div class="kartu-isi" style="padding-bottom:0"><div class="kilat"><div class="galat">{{ galat | join("; ") }}</div></div></div>
+  {% endif %}
+  <form class="kartu-isi" method="post" action="{{ '/bahan/tambah' if baru else '/bahan/' ~ b.id }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <h3 style="margin-bottom:14px">Informasi bahan</h3>
+    <div class="form-grid">
+      <label class="isian">SKU*
+        <input type="text" name="sku" value="{{ b.sku }}" {{ "readonly" if not baru }} required maxlength="30">
+        {% if not baru %}<span class="ket">SKU tidak dapat diubah karena dipakai riwayat stok dan majoo.</span>{% endif %}
+      </label>
+      <label class="isian">Nama bahan*<input type="text" name="nama" value="{{ b.nama }}" required maxlength="150"></label>
+      <label class="isian">Kategori
+        <input type="text" name="kategori" value="{{ b.kategori }}" list="daftar-kategori" maxlength="60">
+        <datalist id="daftar-kategori">{% for k in kategori_list %}<option value="{{ k }}">{% endfor %}</datalist>
+      </label>
+      <label class="isian">Satuan dasar
+        <input type="text" name="satuan" value="{{ b.satuan }}" list="daftar-satuan" maxlength="30">
+        <datalist id="daftar-satuan">{% for s in satuan_list %}<option value="{{ s }}">{% endfor %}</datalist>
+        <span class="ket">Satuan pada resep majoo. Semua jumlah stok memakai satuan ini.</span>
+      </label>
+      <label class="cek" style="align-self:end;height:40px"><input type="checkbox" name="monitor" {{ "checked" if b.monitor }}> Monitor persediaan (Y)</label>
+    </div>
+
+    <h3 style="margin:26px 0 14px">Pembelian dan penyimpanan</h3>
+    <div class="form-grid">
+      <label class="isian">Nama kemasan beli {{ tanda("kemasan") }}
+        <input type="text" name="kemasan_nama" value="{{ b.kemasan_nama }}" class="{{ 'asumsi' if 'kemasan' in asumsi }}" maxlength="30">
+        <span class="ket">Mis. Botol, Pack, Kg, Papan.</span>
+      </label>
+      <label class="isian">Isi satu kemasan ({{ b.satuan }})* {{ tanda("kemasan") }}
+        <input type="text" inputmode="decimal" name="kemasan_isi" value="{{ b.kemasan_isi | isian }}" class="{{ 'asumsi' if 'kemasan' in asumsi }}" required>
+        <span class="ket">k pada Persamaan 26 dan 28: rekomendasi selalu kelipatan isi kemasan.</span>
+      </label>
+      <label class="isian">Harga beli per {{ b.satuan | lower }} (Rp)* {{ tanda("harga") }}
+        <input type="text" inputmode="decimal" name="harga_satuan" value="{{ b.harga_satuan | isian }}" class="{{ 'asumsi' if 'harga' in asumsi }}" required>
+        <span class="ket">Dipakai sebagai biaya pembusukan c_w dan dasar biaya simpan c_h.</span>
+      </label>
+      <label class="isian">Masa simpan (hari)* {{ tanda("masa_simpan") }}
+        <input type="text" inputmode="numeric" name="masa_simpan" value="{{ b.masa_simpan }}" class="{{ 'asumsi' if 'masa_simpan' in asumsi }}" required>
+        <span class="ket">Bahan yang melewati masa simpan dihitung terbuang.</span>
+      </label>
+      <label class="isian">Lead time (hari)* {{ tanda("lead_time") }}
+        <input type="text" inputmode="numeric" name="lead_time" value="{{ b.lead_time }}" class="{{ 'asumsi' if 'lead_time' in asumsi }}" required>
+        <span class="ket">Model dilatih dengan lead time 1 hari (pesanan tiba besok pagi).</span>
+      </label>
+      <label class="isian">Kapasitas simpan maksimum (kemasan)
+        <input type="text" inputmode="numeric" name="maks_kelipatan" value="{{ b.maks_kelipatan or '' }}" placeholder="kosong = otomatis dari data">
+        <span class="ket">Kemasan paling banyak yang muat disimpan: menjadi m (Persamaan 28) dan batas posisi stok saat merekomendasikan. Kosong = dihitung otomatis dari pola pemakaian.</span>
+      </label>
+      <label class="isian">Biaya kehabisan per {{ b.satuan | lower }} (Rp)* {{ tanda("biaya_kehabisan") }}
+        <input type="text" inputmode="decimal" name="biaya_kehabisan" value="{{ b.biaya_kehabisan | isian }}" class="{{ 'asumsi' if 'biaya_kehabisan' in asumsi }}" required>
+        <span class="ket">c_s: margin menu yang hilang bila bahan habis ({{ b.sumber_biaya_kehabisan }}).</span>
+      </label>
+      <label class="isian">Stok minimum (ROP dinamis)
+        <input type="text" value="{{ b.stok_minimum | angka_pas }}" readonly>
+        <span class="ket">Diisi otomatis setiap rekomendasi dihitung{% if b.stok_minimum_diubah %}, terakhir {{ b.stok_minimum_diubah | waktu }}{% endif %}.</span>
+      </label>
+      <label class="isian penuh">Catatan<textarea name="catatan" rows="2">{{ b.catatan or "" }}</textarea></label>
+    </div>
+
+    {% if not baru and b.satuan_lain %}
+    <h3 style="margin:26px 0 10px">Satuan di majoo</h3>
+    <table class="tabel rapat" style="max-width:640px">
+      <thead><tr><th>No</th><th>Satuan</th><th>SKU</th><th class="angka">Konversi</th><th></th></tr></thead>
+      <tbody>{% for u in b.satuan_lain %}<tr><td>#{{ u.no }}</td><td>{{ u.satuan }}</td><td>{{ u.sku }}</td>
+        <td class="angka">{{ u.konversi | angka_pas }}</td><td>{% if u.dasar %}<span class="status hijau">satuan dasar</span>{% endif %}</td></tr>{% endfor %}</tbody>
+    </table>
+    {% endif %}
+
+    <div class="baris-tombol">
+      {% if not baru and asumsi %}
+      <label class="cek" style="margin-right:auto"><input type="checkbox" name="konfirmasi"> Semua data bahan ini sudah benar (hapus tanda sementara)</label>
+      {% endif %}
+      <a class="tombol garis" href="/bahan">Batal</a>
+      <button class="tombol" type="submit">Simpan</button>
+    </div>
+  </form>
+</div>
+{% if not baru %}
+<form method="post" action="/bahan/{{ b.id }}/hapus" style="margin-top:14px;text-align:right" data-konfirmasi="Hapus {{ b.nama }} dari daftar bahan baku?">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button class="tombol merah garis kecil" type="submit">{{ ikon("sampah", "ikon-k") }} Hapus bahan baku</button>
+</form>
+{% endif %}
+{% endblock %}

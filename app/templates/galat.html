@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block judul %}Galat {{ kode }}{% endblock %}
+{% block isi %}
+<div class="kartu"><div class="kartu-isi kosong">
+  <h2>{{ "Halaman tidak ditemukan" if kode == 404 else "Permintaan tidak dapat diproses" }}</h2>
+  <p>{{ pesan }}</p>
+  <a class="tombol" href="/dasbor">Kembali ke Dashboard</a>
+</div></div>
+{% endblock %}

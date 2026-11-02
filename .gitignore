@@ -1,0 +1,8 @@
+# data lokal setiap komputer: basis data, kunci sesi, model hasil pelatihan ulang
+predistok*.db*
+.kunci_sesi
+artefak/model/
+artefak/model_demo/
+.venv/
+__pycache__/
+.pytest_cache/

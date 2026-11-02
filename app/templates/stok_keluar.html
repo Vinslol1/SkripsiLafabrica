@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}Stok Keluar Harian{% endblock %}
+{% block isi %}
+{% if kosong %}
+<div class="info merah"><span class="i">!</span>
+  <div><b>Pencatatan 7 hari terakhir belum lengkap</b>Hari tanpa catatan: {% for d in kosong %}{{ d | tgl }}{{ ", " if not loop.last }}{% endfor %}.
+    Rekomendasi tidak dihitung sampai pemakaian 7 hari terakhir lengkap (fitur lag dan rolling XGBoost).</div></div>
+{% elif terakhir %}
+<div class="info hijau"><span class="i">i</span>
+  <div><b>Pencatatan terakhir: {{ terakhir | tgl_panjang }}</b>
+    Catat stok keluar setiap hari (impor dari majoo atau isi manual) agar prediksi dan rekomendasi memakai data terbaru.</div></div>
+{% endif %}
+
+<div class="grid lebar-kiri">
+  <div class="kartu">
+    <div class="kartu-kepala">
+      <h1>Stok Keluar Harian</h1>
+      <div class="aksi">
+        <a class="tautan-aksi" href="/stok/keluar/template?tanggal={{ t }}">{{ ikon("unduh") }} Template</a>
+        <button class="tautan-aksi" type="button" data-buka-modal="modal-impor-keluar">{{ ikon("unggah") }} Impor Stok Keluar</button>
+      </div>
+    </div>
+    <form class="saring" method="get" action="/stok/keluar">
+      <label class="isian" style="flex-direction:row;align-items:center;gap:10px">Tanggal <input type="date" name="tanggal" value="{{ t }}" data-otomatis></label>
+      <label class="cari">{{ ikon("cari") }}<input type="search" name="q" value="{{ q }}" placeholder="Saring bahan ..." data-saring-tabel="tabel-keluar"></label>
+      <span class="kanan-saring">
+        {% if status %}<span class="status {{ 'abu' if status.status == 'tutup' else 'hijau' }}">{{ "Kafe tutup" if status.status == "tutup" else "Sudah tercatat (" ~ status.sumber ~ ")" }}</span>
+        {% else %}<span class="status kuning">Belum tercatat</span>{% endif %}
+      </span>
+    </form>
+    <form method="post" action="/stok/keluar">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="tanggal" value="{{ t }}">
+      <div class="tabel-wadah" style="max-height:560px;overflow:auto">
+      <table class="tabel rapat" id="tabel-keluar">
+        <thead><tr><th>SKU</th><th>Nama</th><th class="angka">Stok Keluar {{ t | tgl }}</th><th>Satuan</th></tr></thead>
+        <tbody>
+        {% for b in bahan %}
+          <tr><td>{{ b.sku }}</td><td>{{ b.nama }}</td>
+            <td class="angka"><input type="hidden" name="tampil" value="{{ b.id }}"><input class="kecil angka-isi" type="text" inputmode="decimal" name="keluar_{{ b.id }}" value="{{ isi[b.id] | isian if b.id in isi else '' }}" placeholder="0"></td>
+            <td>{{ b.satuan }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <div class="kartu-isi" style="display:flex;gap:12px;justify-content:flex-end;flex-wrap:wrap">
+        <button class="tombol" type="submit">Simpan Stok Keluar {{ t | tgl }}</button>
+      </div>
+    </form>
+    <form class="kartu-isi" method="post" action="/stok/keluar/tutup" data-konfirmasi="Tandai {{ t | tgl }} sebagai hari kafe tutup? Semua stok keluar hari itu menjadi 0." style="padding-top:0;text-align:right">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="tanggal" value="{{ t }}">
+      <button class="tautan-aksi" type="submit" style="font-size:13.5px">Tandai kafe tutup pada {{ t | tgl }}</button>
+    </form>
+  </div>
+  <div class="kartu">
+    <div class="kartu-kepala"><h2>Hari tercatat</h2></div>
+    <ul class="daftar-ringkas" style="max-height:700px;overflow:auto">
+      {% for h in hari %}
+      <li><a href="/stok/keluar?tanggal={{ h.tanggal }}">{{ h.tanggal | tgl_panjang }}</a>
+        <span class="kanan-li">{% if h.status == "tutup" %}<span class="status abu">tutup</span>{% else %}{{ nilai.get(h.tanggal, 0) | rupiah }}<br><span class="kecil">{{ h.sumber }}</span>{% endif %}</span></li>
+      {% else %}<li class="kecil">Belum ada catatan.</li>{% endfor %}
+    </ul>
+  </div>
+</div>
+
+<div class="modal-latar" id="modal-impor-keluar">
+  <div class="modal">
+    <div class="kartu-kepala"><h2>Impor Stok Keluar</h2><button class="tutup-modal" type="button">&times;</button></div>
+    <form class="kartu-isi" method="post" action="/stok/keluar/impor" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <p style="margin-top:0">Format yang diterima:</p>
+      <ol style="margin-top:0;padding-left:18px">
+        <li>Tabel dengan kolom <b>Tanggal, SKU, Jumlah Keluar</b> (boleh banyak hari, seperti file Stok_Keluar_Harian).</li>
+        <li><b>Ekspor Daftar Stok majoo</b> untuk satu hari (kolom SKU dan TERJUAL). Pilih tanggalnya di bawah.</li>
+      </ol>
+      <p class="kecil">Setiap tanggal di file dianggap catatan lengkap hari itu: bahan yang tidak ada di file dianggap 0.</p>
+      <div class="form-grid">
+        <label class="isian">Tanggal (khusus ekspor majoo)<input type="date" name="tanggal" value="{{ t }}"></label>
+        <label class="isian">File<input type="file" name="berkas" accept=".xlsx" required></label>
+      </div>
+      <div class="baris-tombol"><button class="tombol garis tutup-modal" type="button">Batal</button><button class="tombol" type="submit" data-memproses="Mengimpor...">Impor</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}Dashboard{% endblock %}
+{% block isi %}
+{% if pengguna.sandi_bawaan %}
+<div class="info merah"><span class="i">!</span><div><b>Ganti kata sandi bawaan</b>Akun ini masih memakai kata sandi awal (admin123).</div>
+  <a class="tautan" href="/pengaturan">Pengaturan</a></div>
+{% endif %}
+{% if terakhir is none %}
+<div class="info merah"><span class="i">!</span><div><b>Belum ada data stok keluar</b>Impor stok keluar harian agar prediksi dan rekomendasi dapat dihitung.</div>
+  <a class="tautan" href="/stok/keluar">Stok Keluar Harian</a></div>
+{% elif tertinggal and tertinggal > 0 %}
+<div class="info kuning"><span class="i">!</span>
+  <div><b>Stok keluar tercatat s.d. {{ terakhir | tgl_panjang }}</b>{{ tertinggal }} hari sebelum hari ini belum dicatat. Catat stok keluar setiap akhir hari
+    agar rekomendasi memakai posisi stok terbaru.</div>
+  <a class="tautan" href="/stok/keluar?tanggal={{ besok_catat }}">Catat Stok Keluar</a></div>
+{% endif %}
+{% if tanpa_opname %}
+<div class="info"><span class="i">i</span>
+  <div><b>{{ tanpa_opname }} bahan belum punya stok awal</b>Stok fisik belum pernah dihitung untuk bahan tersebut, sehingga jumlah pesan belum dapat direkomendasikan
+    (prediksi dan ROP tetap dihitung). Lakukan stok opname sekali, setelah itu stok dihitung otomatis dari pembelian dan stok keluar.</div>
+  <a class="tautan" href="/stok/opname">Stok Opname</a></div>
+{% endif %}
+
+<div class="kartu" style="margin-top:{{ '18px' if pengguna.sandi_bawaan or terakhir is none or tertinggal or tanpa_opname else '0' }}">
+  <div class="kartu-kepala">
+    <h1>Halo, {{ pengguna.nama }}</h1>
+    <span class="kecil">{{ hari_ini | tgl_panjang }}</span>
+    <div class="aksi">
+      <a class="tombol garis" href="/stok/keluar">{{ ikon("catat", "ikon-k") }} Catat Stok Keluar</a>
+      <a class="tombol" href="/rekomendasi">{{ ikon("lampu", "ikon-k") }} Lihat Rekomendasi</a>
+    </div>
+  </div>
+  <div class="kartu-isi">
+    <ol class="alur">
+      <li class="{{ 'selesai' if terakhir and not tertinggal }}"><b>1. Catat stok keluar</b><span>{{ ("tercatat s.d. " ~ (terakhir | tgl)) if terakhir else "belum ada data" }}</span></li>
+      <li class="{{ 'selesai' if t_rek and terakhir and t_rek >= terakhir }}"><b>2. Hitung rekomendasi</b><span>{{ ("terakhir untuk " ~ (t_rek | tgl)) if t_rek else "belum pernah" }}</span></li>
+      <li class="{{ 'selesai' if t_rek and not belum_dipesan }}"><b>3. Buat pesanan</b><span>{{ (belum_dipesan | length ~ " bahan belum dipesan") if belum_dipesan else ("semua rekomendasi sudah dipesan" if perlu else "tidak ada yang perlu dipesan") }}</span></li>
+      <li class="{{ 'selesai' if not terlambat }}"><b>4. Terima barang</b><span>{{ pesanan | length }} pesanan dalam perjalanan{% if terlambat %}, {{ terlambat | length }} terlambat{% endif %}</span></li>
+    </ol>
+  </div>
+</div>
+
+<div class="grid empat" style="margin-top:18px">
+  <div class="kartu statistik"><span class="label"><span class="ikon-bulat">{{ ikon("kotak", "ikon-k") }}</span> Bahan dimonitor</span>
+    <span class="nilai">{{ n_bahan }}</span><span class="bawah">bahan baku aktif dengan monitor stok</span></div>
+  <div class="kartu statistik merah"><span class="label"><span class="ikon-bulat merah">{{ ikon("segitiga", "ikon-k") }}</span> Stok kritis</span>
+    <span class="nilai">{{ kritis | length }}</span><span class="bawah">{{ ("posisi stok ≤ ROP pada " ~ (t_rek | tgl)) if t_rek else "belum ada rekomendasi" }}</span></div>
+  <div class="kartu statistik hijau"><span class="label"><span class="ikon-bulat">{{ ikon("truk", "ikon-k") }}</span> Perlu dipesan</span>
+    <span class="nilai">{{ belum_dipesan | length }}</span><span class="bawah">{{ nilai_perlu | rupiah }} perkiraan nilai, belum dipesan</span></div>
+  <div class="kartu statistik {{ 'merah' if terlambat }}"><span class="label"><span class="ikon-bulat {{ 'merah' if terlambat else 'biru' }}">{{ ikon("jam", "ikon-k") }}</span> Pesanan dalam perjalanan</span>
+    <span class="nilai">{{ pesanan | length }}</span><span class="bawah">{{ (terlambat | length ~ " melewati perkiraan tiba") if terlambat else "tidak ada yang terlambat" }}</span></div>
+</div>
+
+<div class="grid lebar-kiri" style="margin-top:18px">
+  <div class="kartu">
+    <div class="kartu-kepala"><h2>Nilai pemakaian bahan baku</h2><span class="kecil">28 hari terakhir, harga beli × stok keluar</span></div>
+    <div class="kartu-isi"><div class="grafik"><canvas id="grafik-pemakaian"></canvas></div></div>
+  </div>
+  <div class="kartu">
+    <div class="kartu-kepala"><h2>Stok kritis</h2>{% if kritis %}<div class="aksi"><a class="tautan-aksi" href="/rekomendasi?filter=kritis">Semua</a></div>{% endif %}</div>
+    <ul class="daftar-ringkas">
+      {% for r in kritis[:8] %}
+      <li><div style="min-width:0"><a href="/rekomendasi/{{ r.id }}" style="color:inherit"><b>{{ r.bahan.nama }}</b></a><br>
+          <span class="kecil">posisi {{ r.posisi | stok }} / ROP {{ r.rop | angka_pas }} {{ r.bahan.satuan | lower }}</span>
+          <div class="batang merah" style="margin-top:5px"><i style="width:{{ [[(r.posisi / r.rop * 100) if r.rop > 0 else 0, 0] | max, 100] | min }}%"></i></div></div>
+        <span class="kanan-li">{% if r.jumlah > 0 %}<span class="status hijau">pesan {{ r.jumlah | angka_pas }}</span>{% else %}<span class="status abu">tidak pesan</span>{% endif %}</span></li>
+      {% else %}
+      <li class="kecil">{{ "Tidak ada bahan dengan stok kritis." if t_rek else "Hitung rekomendasi untuk melihat stok kritis." }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+
+<div class="grid tiga" style="margin-top:18px">
+  <div class="kartu">
+    <div class="kartu-kepala"><h2>Hampir kedaluwarsa</h2></div>
+    <ul class="daftar-ringkas">
+      {% for r in hampir %}
+      <li><div><b>{{ r.bahan.nama }}</b><br><span class="kecil">masa simpan {{ r.bahan.masa_simpan }} hari</span></div>
+        <span class="kanan-li">{% if r.kedaluwarsa > 0.000001 %}<span class="status merah">{{ r.kedaluwarsa | angka_pas }} lewat</span>{% else %}<span class="status kuning">{{ r.hampir_kedaluwarsa | angka_pas }} {{ r.bahan.satuan | lower }}</span>{% endif %}</span></li>
+      {% else %}
+      <li class="kecil">Tidak ada stok yang mendekati batas masa simpan.</li>
+      {% endfor %}
+    </ul>
+    {% if hampir %}<div class="kartu-isi kecil" style="border-top:1px solid var(--garis)">Perkiraan dari umur stok FIFO. Catat yang dibuang di <a href="/stok/terbuang">Stok Terbuang</a>.</div>{% endif %}
+  </div>
+  <div class="kartu">
+    <div class="kartu-kepala"><h2>Pesanan dalam perjalanan</h2>{% if pesanan %}<div class="aksi"><a class="tautan-aksi" href="/pembelian">Semua</a></div>{% endif %}</div>
+    <ul class="daftar-ringkas">
+      {% for x in pesanan[:8] %}
+      <li><div><a href="/pembelian/{{ x.id }}" style="color:inherit"><b>{{ x.nomor }}</b></a><br><span class="kecil">{{ x.items | length }} bahan · {{ x.pemasok or "tanpa pemasok" }}</span></div>
+        <span class="kanan-li">{% if x.terlambat(hari_ini) %}<span class="status merah">terlambat</span>{% else %}<span class="status biru">tiba {{ x.tanggal_perkiraan | tgl }}</span>{% endif %}</span></li>
+      {% else %}
+      <li class="kecil">Tidak ada pesanan yang belum diterima.</li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="kartu">
+    <div class="kartu-kepala"><h2>Model aktif</h2>{% if run %}<div class="aksi"><a class="tautan-aksi" href="/simulasi">Detail</a></div>{% endif %}</div>
+    {% if ev %}
+    {% set tu = ev.kebijakan.utama.total %}
+    <div class="kartu-isi">
+      <dl class="rincian">
+        <dt>Data latih</dt><dd>s.d. {{ run.data_sampai | tgl }}</dd>
+        <dt>XGBoost &gt; MA-7</dt><dd>{{ ev.xgb_menang_ma7 }} / {{ ev.xgb_n_bahan }} bahan</dd>
+        <dt>Biaya uji K1</dt><dd>{{ tu.K1.TC_mean | rupiah }}</dd>
+        <dt>Biaya uji K2</dt><dd>{{ tu.K2.TC_mean | rupiah }}</dd>
+        <dt>Biaya uji K3</dt><dd style="color:var(--hijau-tua)">{{ tu.K3.TC_mean | rupiah }}</dd>
+        <dt>Fill rate K3</dt><dd>{{ tu.K3.FR_rata_mean | persen }}</dd>
+      </dl>
+      <p class="kecil" style="margin-bottom:0">Simulasi 28 hari data uji, {{ ev.kebijakan.utama.n_bahan }} bahan utama.
+        {% if tu.K1.TC_mean > 0 %}K3 {{ (1 - tu.K3.TC_mean / tu.K1.TC_mean) | persen(0) }} lebih hemat dari K1 dan {{ (1 - tu.K3.TC_mean / tu.K2.TC_mean) | persen(0) }} dari K2.{% endif %}</p>
+    </div>
+    {% else %}
+    <div class="kartu-isi">Belum ada model aktif. <a href="/pelatihan">Latih model</a>.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block skrip %}
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script>
+(function () {
+  const W = PrediStok.warna, g = {{ grafik | json | safe }};
+  if (!g.label.length) return;
+  PrediStok.grafik("grafik-pemakaian", { type: "bar",
+    data: { labels: g.label.map(PrediStok.tanggal), datasets: [{ label: "Nilai pemakaian", data: g.nilai, backgroundColor: W.hijau, borderRadius: 3 }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => "Rp " + PrediStok.angka(c.raw) } } },
+      scales: { y: { beginAtZero: true, ticks: { callback: (v) => PrediStok.angka(v / 1e3) + " rb" } } } } });
+})();
+</script>
+{% endblock %}

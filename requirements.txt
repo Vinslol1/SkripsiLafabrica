@@ -1,0 +1,20 @@
+# PrediStok - Python 3.11 s.d. 3.13 (disarankan 3.12 atau 3.13)
+# Batas atas versi mencegah versi besar baru yang belum diuji ikut terpasang.
+fastapi>=0.115,<1
+starlette<2
+uvicorn>=0.30
+sqlalchemy>=2.0,<3
+jinja2>=3.1,<4
+python-multipart>=0.0.9
+itsdangerous>=2.1
+pandas>=3.0,<4
+numpy>=2.0,<3
+scipy>=1.13,<2
+# XGBoost dipakai lewat API inti (xgboost.train/Booster), jadi scikit-learn tidak diperlukan
+xgboost>=3.0,<4
+openpyxl>=3.1,<4
+python-calamine>=0.2
+# pengujian otomatis (python -m pytest)
+pytest>=8
+httpx>=0.27
+# opsional, bila memakai MySQL: pymysql>=1.1

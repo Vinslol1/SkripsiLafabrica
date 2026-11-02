@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}Stok Opname{% endblock %}
+{% block isi %}
+<div class="kartu">
+  <div class="kartu-kepala">
+    <h1>Stok Opname</h1>
+    <div class="aksi">
+      <a class="tautan-aksi" href="/stok/opname/template?tanggal={{ t }}">{{ ikon("unduh") }} Template Excel</a>
+      <button class="tautan-aksi" type="button" data-buka-modal="modal-impor-opname">{{ ikon("unggah") }} Impor Hasil Opname</button>
+    </div>
+  </div>
+  <div class="kartu-isi" style="padding-bottom:0">
+    <div class="info hijau"><span class="i">i</span>
+      <div>Isi <b>stok fisik</b> hasil hitung pada akhir hari (setelah pemakaian hari itu). Stok tercatat bahan akan disamakan dengan hasil hitung,
+        dan selisihnya terlihat di Daftar Stok. Stok opname pertama menjadi stok awal bahan; bahan yang belum pernah diopname belum bisa diberi rekomendasi.</div>
+    </div>
+  </div>
+  <form class="saring" method="get" action="/stok/opname">
+    <label class="isian" style="flex-direction:row;align-items:center;gap:10px">Tanggal <input type="date" name="tanggal" value="{{ t }}" data-otomatis></label>
+    <label class="cari">{{ ikon("cari") }}<input type="search" name="q" value="{{ q }}" placeholder="Cari bahan ..."></label>
+    <select name="kategori" data-otomatis>
+      <option value="">Semua Kategori</option>
+      {% for k in kategori_list %}<option value="{{ k }}" {{ "selected" if k == kategori }}>{{ k }}</option>{% endfor %}
+    </select>
+  </form>
+  <form method="post" action="/stok/opname">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="tanggal" value="{{ t }}">
+    <div class="tabel-wadah" style="max-height:600px;overflow:auto">
+    <table class="tabel rapat">
+      <thead><tr><th>SKU</th><th>Nama</th><th>Kategori</th><th class="angka">Stok Tercatat {{ t | tgl }}</th><th class="angka">Stok Fisik</th><th>Satuan</th></tr></thead>
+      <tbody>
+      {% for b in bahan %}
+        <tr>
+          <td>{{ b.sku }}</td>
+          <td>{{ b.nama }} {% if not tahu[b.id] %}<span class="status kuning">belum pernah opname</span>{% endif %}</td>
+          <td>{{ b.kategori }}</td>
+          <td class="angka {{ 'minus' if tercatat[b.id] < -0.000001 }}">{{ tercatat[b.id] | stok }}</td>
+          <td class="angka"><input class="kecil angka-isi" type="text" inputmode="decimal" name="fisik_{{ b.id }}" placeholder="-"></td>
+          <td>{{ b.satuan }}</td>
+        </tr>
+      {% else %}<tr><td colspan="6" class="kosong">Tidak ada bahan yang dimonitor.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="kartu-isi" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <input type="text" name="keterangan" placeholder="Keterangan (opsional)" style="flex:1;min-width:220px" maxlength="200">
+      <button class="tombol" type="submit">Simpan Stok Opname</button>
+    </div>
+  </form>
+</div>
+
+<div class="kartu">
+  <div class="kartu-kepala"><h2>Riwayat stok opname</h2></div>
+  <table class="tabel rapat">
+    <thead><tr><th>Tanggal</th><th>Bahan</th><th class="angka">Stok Fisik</th><th>Keterangan</th><th>Oleh</th><th></th></tr></thead>
+    <tbody>
+    {% for m in riwayat %}
+      <tr><td>{{ m.tanggal | tgl }}</td><td>{{ m.bahan.nama }}</td><td class="angka">{{ m.jumlah | angka_pas }} {{ m.bahan.satuan | lower }}</td>
+        <td>{{ m.keterangan }}</td><td>{{ m.dibuat_oleh }}</td>
+        <td><form method="post" action="/stok/mutasi/{{ m.id }}/hapus" data-konfirmasi="Hapus catatan opname ini?">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kembali" value="/stok/opname?tanggal={{ t }}">
+          <button class="tautan-aksi" type="submit" title="Hapus" style="color:var(--merah)">{{ ikon("sampah", "ikon-k") }}</button></form></td></tr>
+    {% else %}<tr><td colspan="6" class="kosong">Belum ada stok opname.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="modal-latar" id="modal-impor-opname">
+  <div class="modal">
+    <div class="kartu-kepala"><h2>Impor Hasil Opname</h2><button class="tutup-modal" type="button">&times;</button></div>
+    <form class="kartu-isi" method="post" action="/stok/opname/impor" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <p style="margin-top:0">Gunakan template Excel stok opname. Baris yang kolom <b>Stok Fisik</b>-nya kosong dilewati.</p>
+      <div class="form-grid">
+        <label class="isian">Tanggal opname<input type="date" name="tanggal" value="{{ t }}" required></label>
+        <label class="isian">File<input type="file" name="berkas" accept=".xlsx" required></label>
+      </div>
+      <div class="baris-tombol"><button class="tombol garis tutup-modal" type="button">Batal</button><button class="tombol" type="submit">Impor</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}

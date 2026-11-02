@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}Rekomendasi Pemesanan{% endblock %}
+{% block isi %}
+<div class="kartu">
+  <div class="kartu-kepala">
+    <h1>Rekomendasi Pemesanan <span class="bantuan" title="Alur Gambar 3: prediksi XGBoost -> ROP dinamis -> state -> Q-table (atau aturan cadangan order-up-to K2)">{{ ikon("tanya", "ikon", 1.8) }}</span></h1>
+    <div class="aksi">
+      <a class="tautan-aksi" href="/rekomendasi/riwayat">{{ ikon("riwayat") }} Riwayat</a>
+      {% if t %}<a class="tautan-aksi" href="/rekomendasi/ekspor?tanggal={{ t }}">{{ ikon("unduh") }} Ekspor</a>{% endif %}
+      <form method="post" action="/rekomendasi/hitung" style="display:flex;gap:10px;align-items:center">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="date" name="tanggal" value="{{ t or '' }}" aria-label="Tanggal keputusan">
+        <button class="tombol" type="submit" data-memproses="Menghitung...">{{ ikon("segar", "ikon-k") }} Hitung Rekomendasi</button>
+      </form>
+    </div>
+  </div>
+  {% if t %}
+  <div class="kartu-isi kecil" style="padding-top:12px;padding-bottom:12px">
+    Keputusan akhir hari <b>{{ t | tgl_panjang }}</b> setelah stok keluar hari itu tercatat; pesanan yang dibuat tiba <b>{{ t_tiba | tgl_panjang }}</b>.
+    ROP = prediksi besok + Z·σ<sub>e</sub>·√L, target = prediksi 2 hari + Z·σ<sub>e</sub>·√(L+1), Z = 1,65, L = 1 hari.
+  </div>
+  {% endif %}
+</div>
+
+{% if t is none %}
+<div class="info merah"><span class="i">!</span><div><b>Belum ada data stok keluar</b>Impor stok keluar harian terlebih dahulu.</div><a class="tautan" href="/stok/keluar">Stok Keluar</a></div>
+{% else %}
+  {% if hasil and hasil.status == "belum_lengkap" %}
+  <div class="info merah"><span class="i">!</span>
+    <div><b>Lengkapi pencatatan stok keluar</b>Rekomendasi {{ t | tgl }} tidak dihitung karena pemakaian 7 hari terakhir belum lengkap:
+      {% for d in hasil.hari_kurang %}{{ d | tgl }}{{ ", " if not loop.last }}{% endfor %}.</div>
+    <a class="tautan" href="/stok/keluar?tanggal={{ hasil.hari_kurang[0] }}">Catat Stok Keluar</a></div>
+  {% elif hasil and hasil.status == "belum_ada_model" %}
+  <div class="info merah"><span class="i">!</span><div><b>Belum ada model aktif</b>Latih model XGBoost dan Q-Learning terlebih dahulu.</div>
+    <a class="tautan" href="/pelatihan">Pelatihan Ulang</a></div>
+  {% endif %}
+  {% if hari_ini and (hari_ini - t).days > 1 %}
+  <div class="info kuning"><span class="i">!</span>
+    <div><b>Rekomendasi ini untuk {{ t | tgl }}</b>Hari ini {{ hari_ini | tgl }}. Catat stok keluar sampai hari ini agar rekomendasi memakai posisi stok terbaru.</div>
+    <a class="tautan" href="/stok/keluar">Stok Keluar Harian</a></div>
+  {% endif %}
+  {% if hasil and hasil.tanpa_opname %}
+  <div class="info kuning"><span class="i">!</span>
+    <div><b>{{ hasil.tanpa_opname | length }} bahan belum punya stok awal</b>Rekomendasi jumlah pesan membutuhkan stok fisik. Lakukan stok opname pertama untuk bahan ini
+      (ROP dan stok minimumnya tetap dihitung).</div>
+    <a class="tautan" href="/stok/opname?tanggal={{ t }}">Stok Opname</a></div>
+  {% endif %}
+  {% if hasil and hasil.belum_dilatih %}
+  <div class="info"><span class="i">i</span>
+    <div><b>{{ hasil.belum_dilatih | length }} bahan dimonitor belum ada di model</b>
+      Bahan tanpa riwayat pemakaian cukup pada data latih (mis. bahan baru) belum memiliki prediksi dan Q-table. Jalankan pelatihan ulang setelah datanya terkumpul.</div>
+    <a class="tautan" href="/pelatihan">Pelatihan Ulang</a></div>
+  {% endif %}
+
+  <div class="grid empat" style="margin-top:18px">
+    <div class="kartu statistik"><span class="label"><span class="ikon-bulat">{{ ikon("kotak", "ikon-k") }}</span> Bahan direkomendasikan</span>
+      <span class="nilai">{{ semua or 0 }}</span><span class="bawah">punya prediksi, Q-table, dan stok awal</span></div>
+    <div class="kartu statistik merah"><span class="label"><span class="ikon-bulat merah">{{ ikon("segitiga", "ikon-k") }}</span> Stok kritis</span>
+      <span class="nilai">{{ n_kritis or 0 }}</span><span class="bawah">posisi stok &le; ROP dinamis</span></div>
+    <div class="kartu statistik hijau"><span class="label"><span class="ikon-bulat">{{ ikon("truk", "ikon-k") }}</span> Perlu dipesan</span>
+      <span class="nilai">{{ n_perlu or 0 }}</span>
+      <span class="bawah">jumlah rekomendasi &gt; 0</span></div>
+    <div class="kartu statistik"><span class="label"><span class="ikon-bulat biru">{{ ikon("batang", "ikon-k") }}</span> Perkiraan nilai pesanan</span>
+      <span class="nilai" style="font-size:22px">{{ total_nilai | rupiah }}</span><span class="bawah">harga beli × rekomendasi (tampilan ini)</span></div>
+  </div>
+
+  <div class="kartu" style="margin-top:18px">
+    <form class="saring" method="get" action="/rekomendasi">
+      <input type="hidden" name="tanggal" value="{{ t }}">
+      <div class="segmen">
+        {% for k, v in filter_list.items() %}<a href="?tanggal={{ t }}&filter={{ k }}&q={{ q }}&kategori={{ kategori }}" class="{{ 'aktif' if filter == k }}">{{ v }}</a>{% endfor %}
+      </div>
+      <input type="hidden" name="filter" value="{{ filter }}">
+      <label class="cari">{{ ikon("cari") }}<input type="search" name="q" value="{{ q }}" placeholder="Cari ..."></label>
+      <select name="kategori" data-otomatis>
+        <option value="">Semua Kategori</option>
+        {% for k in kategori_list %}<option value="{{ k }}" {{ "selected" if k == kategori }}>{{ k }}</option>{% endfor %}
+      </select>
+    </form>
+    <form method="post" action="/rekomendasi/pesan">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="tanggal" value="{{ t }}">
+      <div class="saring" data-aksi-terpilih hidden style="background:#fafcfc">
+        <b><span data-jumlah-terpilih>0</span> bahan dipilih</b>
+        <input type="text" name="pemasok" placeholder="Pemasok (opsional)" maxlength="100">
+        <button class="tombol" type="submit">{{ ikon("truk", "ikon-k") }} Buat Pesanan</button>
+      </div>
+      <div class="tabel-wadah">
+      <table class="tabel rapat" id="tabel-rek">
+        <thead><tr>
+          <th class="pilih"><input type="checkbox" data-pilih-semua aria-label="Pilih semua"></th>
+          <th style="min-width:210px">Bahan</th><th class="angka">Posisi Stok</th><th class="angka">Prediksi Besok</th>
+          <th class="angka">ROP / Target</th><th class="angka">Hampir Kedaluwarsa</th>
+          <th class="angka">Rekomendasi Pesan</th><th>Sumber</th><th>Status</th><th></th>
+        </tr></thead>
+        <tbody>
+        {% for r in rows %}
+          {% set b = r.bahan %}
+          <tr>
+            <td class="pilih">{% if r.id in sudah_dipesan %}<span title="Sudah dipesan">{{ ikon("cek", "ikon-k") }}</span>
+              {% else %}<input type="checkbox" name="pilih" value="{{ r.id }}" aria-label="Pilih {{ b.nama }}">{% endif %}</td>
+            <td><b>{{ b.nama }}</b><br><span class="kecil">{{ b.sku }} · {{ b.satuan }}</span></td>
+            <td class="angka"><b class="{{ 'minus' if r.posisi < 0 }}">{{ r.posisi | stok }}</b>
+              {% if r.dalam_perjalanan > 0.000001 %}<br><span class="kecil" title="stok di tangan + pesanan dalam perjalanan">{{ r.stok | stok }} + {{ r.dalam_perjalanan | stok }} dipesan</span>{% endif %}</td>
+            <td class="angka">{{ r.prediksi[0] | angka_pas }}</td>
+            <td class="angka">{{ r.rop | angka_pas }}<br><span class="kecil">target {{ r.target | angka_pas }}</span></td>
+            <td class="angka">{% if r.kedaluwarsa > 0.000001 %}<span class="status merah" title="sudah lewat masa simpan">{{ r.kedaluwarsa | angka_pas }}</span>
+              {% elif r.hampir_kedaluwarsa > 0.000001 %}<span class="status kuning">{{ r.hampir_kedaluwarsa | angka_pas }}</span>{% else %}<span class="redup">0</span>{% endif %}</td>
+            <td class="angka">
+              {% if r.id in sudah_dipesan %}<span class="status hijau">{{ sudah_dipesan[r.id] }}</span>
+              {% else %}
+              <input class="kecil angka-isi" type="text" inputmode="decimal" name="jumlah_{{ r.id }}" value="{{ r.jumlah | isian }}"
+                data-isi-kemasan="{{ b.kemasan_isi }}" data-nama-kemasan="{{ b.kemasan_nama | lower }}" data-keluaran="kem-{{ r.id }}">
+              <div class="kecil" id="kem-{{ r.id }}"></div>
+              {% endif %}
+            </td>
+            <td>{% if r.sumber == "q_learning" %}<span class="status biru" title="aksi terbaik Q-table">Q-Learning</span>
+              {% else %}<span class="status abu" title="state belum pernah ditemui saat pelatihan">Cadangan K2</span>{% endif %}
+              {% if (r.jumlah - r.jumlah_k2) | abs > 0.000001 %}<br><span class="kecil" title="jumlah menurut aturan order-up-to K2">K2: {{ r.jumlah_k2 | angka_pas }}</span>{% endif %}</td>
+            <td>{% if r.kritis %}<span class="status merah">{{ ikon("segitiga", "ikon-k") }} Kritis</span>{% else %}<span class="status hijau">Aman</span>{% endif %}</td>
+            <td><a href="/rekomendasi/{{ r.id }}" title="Mengapa jumlah ini?" style="color:#2b2f33">{{ ikon("mata") }}</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="10" class="kosong">{% if hasil and hasil.status != "ok" %}Rekomendasi belum dapat dihitung.{% elif filter == "perlu" %}Tidak ada bahan yang perlu dipesan hari ini.{% else %}Tidak ada data.{% endif %}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </form>
+  </div>
+{% endif %}
+{% endblock %}

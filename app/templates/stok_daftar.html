@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}Daftar Stok{% endblock %}
+{% block isi %}
+<div class="info">
+  <span class="i">i</span>
+  <div><b>Menu Baru - Rekomendasi Pemesanan</b>
+    Stok Minimum setiap bahan kini diisi otomatis dari ROP dinamis hasil prediksi XGBoost, dan jumlah pesanan direkomendasikan oleh Q-Learning.</div>
+  <a class="tautan" href="/rekomendasi">Menu Rekomendasi</a>
+</div>
+
+<div class="kartu">
+  <div class="kartu-kepala">
+    <h1>Daftar Stok <span class="bantuan" title="AWAL = stok akhir hari sebelum periode; MASUK = penerimaan pesanan; TERJUAL = stok keluar harian; AKHIR = AWAL + MASUK - TERJUAL - TERBUANG + selisih opname">{{ ikon("tanya", "ikon", 1.8) }}</span>
+      <span class="bintang">{{ ikon("bintang", "ikon", 1.6) }}</span></h1>
+    <div class="aksi">
+      <a class="tombol" href="/stok/ekspor?mulai={{ mulai }}&sampai={{ sampai }}&q={{ q }}&kategori={{ kategori }}&jumlah={{ jumlah }}">Ekspor Daftar Stok</a>
+    </div>
+  </div>
+  <form method="get" action="/stok">
+    <div class="saring" style="border-bottom:0;padding-bottom:6px">
+      <label class="cari">{{ ikon("cari") }}<input type="search" name="q" value="{{ q }}" placeholder="Cari ..."></label>
+      <span class="rentang">{{ ikon("kalender", "ikon", 1.8) }}
+        <input type="date" name="mulai" value="{{ mulai }}" data-otomatis aria-label="Mulai"> -
+        <input type="date" name="sampai" value="{{ sampai }}" data-otomatis aria-label="Sampai"></span>
+      <div class="kanan-saring">
+        <div class="segmen">
+          {% for k, lbl in [("semua", "Semua"), ("kritis", "Kritis"), ("minus", "Minus")] %}
+          <a href="?q={{ q }}&mulai={{ mulai }}&sampai={{ sampai }}&kategori={{ kategori }}&jumlah={{ k }}" class="{{ 'aktif' if jumlah == k }}">{{ lbl }}</a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="saring">
+      <select name="jumlah" data-otomatis>
+        {% for k, v in filter_jumlah.items() %}<option value="{{ k }}" {{ "selected" if k == jumlah }}>{{ v }}</option>{% endfor %}
+      </select>
+      <select name="kategori" data-otomatis>
+        <option value="">Semua Kategori</option>
+        {% for k in kategori_list %}<option value="{{ k }}" {{ "selected" if k == kategori }}>{{ k }}</option>{% endfor %}
+      </select>
+      <div class="tarik" data-kolom-tabel="tabel-stok">
+        <button class="pemicu" type="button">Sertakan Kolom {{ ikon("segitiga-bawah", "ikon-k") }}</button>
+        <div class="daftar">
+          {% for k, v in kolom_opsional.items() %}
+          <label><input type="checkbox" value="{{ k }}" {{ "checked" if k == "minimum" }}> {{ v }}</label>
+          {% endfor %}
+        </div>
+      </div>
+      <span class="kecil" style="margin-left:auto">{{ rows | length }} bahan</span>
+    </div>
+  </form>
+  {% if n_tanpa_opname %}
+  <div class="kartu-isi" style="padding-top:0">
+    <div class="info kuning"><span class="i">!</span>
+      <div><b>{{ n_tanpa_opname }} bahan belum pernah diopname</b>
+        Stok awalnya dianggap 0, sehingga stok AKHIR bisa minus seperti di majoo. Rekomendasi pemesanan membutuhkan stok fisik dari stok opname pertama.</div>
+      <a class="tautan" href="/stok/opname">Stok Opname</a></div>
+  </div>
+  {% endif %}
+  <div class="tabel-wadah">
+  <table class="tabel" id="tabel-stok">
+    <thead><tr>
+      <th>SKU</th><th>Nama</th><th>Jenis</th>
+      <th class="angka">Awal</th><th class="angka">Masuk</th><th class="angka">Terjual</th>
+      <th class="angka" data-kolom="terbuang">Terbuang</th>
+      <th class="angka" data-kolom="selisih">Selisih Opname</th>
+      <th class="angka">Akhir</th>
+      <th class="angka" data-kolom="minimum">Stok Minimum</th>
+      <th class="angka" data-kolom="transit">Dalam Perjalanan</th>
+      <th class="angka" data-kolom="nilai">Nilai Stok</th>
+      <th>Satuan</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr class="{{ 'redup-baris' if not r.b.monitor }}">
+        <td>{{ r.b.sku }}</td>
+        <td><div class="nama-sel"><span>{{ r.b.nama }}</span>
+          {% if r.kritis %}<span class="peringatan-segitiga" title="{{ 'Stok minus' if r.akhir < 0 else 'Stok pada atau di bawah stok minimum (ROP)' }}">{{ ikon("segitiga", "ikon", 2) }}</span>{% endif %}</div></td>
+        <td>Bahan</td>
+        <td class="angka">{{ r.awal | stok }}</td>
+        <td class="angka">{{ r.masuk | stok }}</td>
+        <td class="angka">{{ r.keluar | stok }}</td>
+        <td class="angka" data-kolom="terbuang">{{ r.terbuang | stok }}</td>
+        <td class="angka" data-kolom="selisih">{{ r.selisih | stok }}</td>
+        <td class="angka {{ 'minus' if r.akhir < -0.000001 }}">{{ r.akhir | stok }}</td>
+        <td class="angka" data-kolom="minimum">{{ r.b.stok_minimum | angka_pas }}</td>
+        <td class="angka" data-kolom="transit">{{ r.transit | stok }}</td>
+        <td class="angka" data-kolom="nilai">{{ r.nilai | rupiah }}</td>
+        <td>{{ r.b.satuan }}</td>
+        <td><a href="/stok/{{ r.b.id }}?mulai={{ mulai }}&sampai={{ sampai }}" title="Kartu stok" style="color:#2b2f33">{{ ikon("mata") }}</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="14" class="kosong">Tidak ada bahan yang cocok dengan saringan.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

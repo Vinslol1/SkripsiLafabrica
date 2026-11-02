@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}{{ ps.nomor }}{% endblock %}
+{% block isi %}
+<div class="kartu">
+  <div class="kartu-kepala">
+    <h1>{{ ps.nomor }}</h1>
+    {% if ps.status == "diterima" %}<span class="status hijau">Diterima {{ ps.tanggal_terima | tgl }}</span>
+    {% elif ps.status == "dibatalkan" %}<span class="status abu">Dibatalkan</span>
+    {% elif ps.terlambat(hari_ini) %}<span class="status merah">Terlambat {{ (hari_ini - ps.tanggal_perkiraan).days }} hari</span>
+    {% else %}<span class="status kuning">Dipesan</span>{% endif %}
+    <div class="aksi">
+      <a class="tautan-aksi" href="/pembelian/{{ ps.id }}/unduh">{{ ikon("unduh") }} Unduh daftar belanja</a>
+      <a class="tautan-aksi" href="/pembelian">Kembali</a>
+    </div>
+  </div>
+  <div class="kartu-isi">
+    <dl class="rincian">
+      <dt>Tanggal pesan</dt><dd>{{ ps.tanggal_pesan | tgl_panjang }}</dd>
+      <dt>Perkiraan tiba</dt><dd>{{ ps.tanggal_perkiraan | tgl_panjang }}</dd>
+      <dt>Pemasok</dt><dd>{{ ps.pemasok or "-" }}</dd>
+      <dt>Catatan</dt><dd>{{ ps.catatan or "-" }}</dd>
+      <dt>Dibuat oleh</dt><dd>{{ ps.dibuat_oleh }} · {{ ps.dibuat | waktu }}</dd>
+    </dl>
+  </div>
+</div>
+
+{% if ps.status == "dipesan" %}
+<form class="kartu" method="post" action="/pembelian/{{ ps.id }}/terima">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="kartu-kepala"><h2>Terima pesanan</h2>
+    <div class="aksi"><label class="isian" style="flex-direction:row;align-items:center;gap:10px">Tanggal tiba sebenarnya
+      <input type="date" name="tanggal_terima" value="{{ terima_bawaan }}" required></label></div></div>
+  <div class="tabel-wadah">
+  <table class="tabel rapat">
+    <thead><tr><th>Bahan</th><th class="angka">Dipesan</th><th class="angka">Diterima</th><th>Satuan</th><th class="angka">Perkiraan Nilai</th></tr></thead>
+    <tbody>
+    {% for it in ps.items %}
+      <tr><td>{{ it.bahan.nama }} <span class="kecil">{{ it.bahan.sku }}</span></td>
+        <td class="angka">{{ it.jumlah | angka_pas }}<div class="kecil">{{ it.jumlah | kemasan(it.bahan.kemasan_isi, it.bahan.kemasan_nama | lower) }}</div></td>
+        <td class="angka"><input class="kecil angka-isi" type="text" inputmode="decimal" name="diterima_{{ it.id }}" value="{{ it.jumlah | isian }}"></td>
+        <td>{{ it.bahan.satuan }}</td><td class="angka">{{ (it.jumlah * it.harga_satuan) | rupiah }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <div class="kartu-isi" style="display:flex;gap:12px;justify-content:flex-end;flex-wrap:wrap">
+    <span class="kecil" style="margin-right:auto;align-self:center">Stok masuk dicatat pada tanggal tiba sebenarnya. Isi 0 bila bahan tidak datang.</span>
+    <button class="tombol" type="submit">{{ ikon("cek", "ikon-k") }} Terima &amp; catat stok masuk</button>
+  </div>
+</form>
+
+<form class="kartu" method="post" action="/pembelian/{{ ps.id }}/ubah">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="kartu-kepala"><h2>Ubah pesanan</h2></div>
+  <div class="kartu-isi">
+    <div class="form-grid">
+      <label class="isian">Perkiraan tiba<input type="date" name="tanggal_perkiraan" value="{{ ps.tanggal_perkiraan }}"></label>
+      <label class="isian">Pemasok<input type="text" name="pemasok" value="{{ ps.pemasok }}" maxlength="100"></label>
+      <label class="isian penuh">Catatan<input type="text" name="catatan" value="{{ ps.catatan }}"></label>
+    </div>
+    <table class="tabel rapat" style="margin-top:14px">
+      <thead><tr><th>Bahan</th><th class="angka">Jumlah dipesan</th><th>Satuan</th></tr></thead>
+      <tbody>{% for it in ps.items %}<tr><td>{{ it.bahan.nama }}</td>
+        <td class="angka"><input class="kecil angka-isi" type="text" inputmode="decimal" name="jumlah_{{ it.id }}" value="{{ it.jumlah | isian }}"
+          data-isi-kemasan="{{ it.bahan.kemasan_isi }}" data-nama-kemasan="{{ it.bahan.kemasan_nama | lower }}" data-keluaran="ub-{{ it.id }}"><div class="kecil" id="ub-{{ it.id }}"></div></td>
+        <td>{{ it.bahan.satuan }}</td></tr>{% endfor %}</tbody>
+    </table>
+    <div class="baris-tombol"><span class="kecil" style="margin-right:auto;align-self:center">Isi 0 untuk menghapus bahan dari pesanan.</span>
+      <button class="tombol garis" type="submit">Simpan perubahan</button></div>
+  </div>
+</form>
+<form method="post" action="/pembelian/{{ ps.id }}/batal" style="margin-top:14px;text-align:right" data-konfirmasi="Batalkan pesanan {{ ps.nomor }}?">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button class="tombol merah garis kecil" type="submit">Batalkan pesanan</button>
+</form>
+{% else %}
+<div class="kartu">
+  <div class="kartu-kepala"><h2>Bahan</h2></div>
+  <table class="tabel rapat">
+    <thead><tr><th>Bahan</th><th class="angka">Dipesan</th><th class="angka">Diterima</th><th>Satuan</th><th class="angka">Nilai</th></tr></thead>
+    <tbody>{% for it in ps.items %}<tr><td>{{ it.bahan.nama }}</td><td class="angka">{{ it.jumlah | angka_pas }}</td>
+      <td class="angka">{{ it.jumlah_diterima | angka_pas if it.jumlah_diterima is not none else "-" }}</td><td>{{ it.bahan.satuan }}</td>
+      <td class="angka">{{ ((it.jumlah_diterima if it.jumlah_diterima is not none else it.jumlah) * it.harga_satuan) | rupiah }}</td></tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% if ps.status == "diterima" %}
+<form method="post" action="/pembelian/{{ ps.id }}/batal-terima" style="margin-top:14px;text-align:right" data-konfirmasi="Batalkan penerimaan? Stok masuk dari pesanan ini akan dihapus.">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button class="tombol merah garis kecil" type="submit">Koreksi: batalkan penerimaan</button>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}

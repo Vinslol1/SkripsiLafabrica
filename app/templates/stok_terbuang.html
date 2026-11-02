@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}Stok Terbuang{% endblock %}
+{% block isi %}
+<div class="grid lebar-kiri">
+  <div class="kartu">
+    <div class="kartu-kepala"><h1>Stok Terbuang</h1></div>
+    <form class="kartu-isi" method="post" action="/stok/terbuang" id="form-terbuang">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-grid">
+        <label class="isian">Tanggal<input type="date" name="tanggal" value="{{ t }}" required></label>
+        <label class="isian penuh">Bahan baku
+          <select name="bahan_id" required>
+            <option value="">Pilih bahan ...</option>
+            {% for b in bahan %}<option value="{{ b.id }}">{{ b.nama }} ({{ b.sku }}, {{ b.satuan }})</option>{% endfor %}
+          </select></label>
+        <label class="isian">Jumlah terbuang (satuan dasar)<input type="text" inputmode="decimal" name="jumlah" required></label>
+        <label class="isian">Alasan
+          <select name="alasan">
+            <option>Kedaluwarsa</option><option>Rusak / busuk</option><option>Tumpah / jatuh</option><option>Lainnya</option>
+          </select></label>
+      </div>
+      <div class="baris-tombol"><button class="tombol" type="submit">Catat Stok Terbuang</button></div>
+    </form>
+  </div>
+  <div class="kartu">
+    <div class="kartu-kepala"><h2>Usulan dari umur stok ({{ t | tgl }})</h2></div>
+    <ul class="daftar-ringkas">
+      {% for u in usulan %}
+      <li>
+        <span>{{ u.b.nama }}<br>
+          {% if u.kedaluwarsa > 0.000001 %}<span class="status merah">{{ u.kedaluwarsa | angka_pas }} {{ u.b.satuan | lower }} lewat masa simpan</span>
+          {% else %}<span class="status kuning">{{ u.hampir_kedaluwarsa | angka_pas }} {{ u.b.satuan | lower }} habis masa simpan besok</span>{% endif %}</span>
+        {% if u.kedaluwarsa > 0.000001 %}
+        <button class="tombol garis kecil kanan-li" type="button" data-isi-terbuang data-bahan="{{ u.b.id }}" data-jumlah="{{ u.kedaluwarsa | isian }}">Catat</button>
+        {% endif %}
+      </li>
+      {% else %}<li class="kecil">Tidak ada stok yang melewati atau mendekati masa simpan (berdasarkan umur batch FIFO dari tanggal terima).</li>{% endfor %}
+    </ul>
+  </div>
+</div>
+<div class="kartu">
+  <div class="kartu-kepala"><h2>Riwayat stok terbuang</h2></div>
+  <table class="tabel rapat">
+    <thead><tr><th>Tanggal</th><th>Bahan</th><th class="angka">Jumlah</th><th class="angka">Nilai</th><th>Alasan</th><th>Oleh</th><th></th></tr></thead>
+    <tbody>
+    {% for m in riwayat %}
+      <tr><td>{{ m.tanggal | tgl }}</td><td>{{ m.bahan.nama }}</td><td class="angka">{{ m.jumlah | angka_pas }} {{ m.bahan.satuan | lower }}</td>
+        <td class="angka">{{ (m.jumlah * (m.bahan.harga_satuan or 0)) | rupiah }}</td><td>{{ m.keterangan }}</td><td>{{ m.dibuat_oleh }}</td>
+        <td><form method="post" action="/stok/mutasi/{{ m.id }}/hapus" data-konfirmasi="Hapus catatan ini?">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kembali" value="/stok/terbuang">
+          <button class="tautan-aksi" type="submit" title="Hapus" style="color:var(--merah)">{{ ikon("sampah", "ikon-k") }}</button></form></td></tr>
+    {% else %}<tr><td colspan="7" class="kosong">Belum ada stok terbuang yang dicatat.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

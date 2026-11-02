@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}Riwayat Rekomendasi{% endblock %}
+{% block isi %}
+<div class="kartu">
+  <div class="kartu-kepala"><h1>Riwayat Rekomendasi</h1>
+    <div class="aksi"><a class="tautan-aksi" href="/rekomendasi">Rekomendasi terbaru</a></div></div>
+  <div class="kartu-isi kecil" style="padding-top:12px;padding-bottom:12px">Setiap rekomendasi disimpan sebagai riwayat untuk evaluasi dan pelatihan ulang (Gambar 3).</div>
+  <table class="tabel">
+    <thead><tr><th>Tanggal keputusan</th><th class="angka">Bahan</th><th class="angka">Stok kritis</th><th class="angka">Perlu dipesan</th><th class="angka">Nilai rekomendasi</th><th></th></tr></thead>
+    <tbody>
+    {% for t, n, k, nilai in rows %}
+      <tr><td>{{ t | tgl_panjang }}</td><td class="angka">{{ n }}</td><td class="angka">{{ k or 0 }}</td><td class="angka">{{ perlu.get(t, 0) }}</td>
+        <td class="angka">{{ (nilai or 0) | rupiah }}</td><td><a href="/rekomendasi?tanggal={{ t }}&filter=semua">Lihat</a></td></tr>
+    {% else %}<tr><td colspan="6" class="kosong">Belum ada rekomendasi.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

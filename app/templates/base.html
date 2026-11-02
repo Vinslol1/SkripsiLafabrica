@@ -1,0 +1,110 @@
+{% from "_ikon.html" import ikon %}
+{%- set grup_inventori = ["bahan", "pembelian", "stok", "keluar", "opname", "terbuang", "catatan"] -%}
+{%- set grup_stok = ["stok", "keluar", "opname", "terbuang", "catatan"] -%}
+{%- set grup_model = ["evaluasi", "simulasi", "pelatihan"] -%}
+{%- set grup_rek = ["rekomendasi", "prediksi"] -%}
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block judul %}{% endblock %} · {{ NAMA_APLIKASI }}</title>
+  <link rel="icon" href="/static/img/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/app.css?v=1">
+  {% block kepala %}{% endblock %}
+</head>
+<body>
+<header class="kepala">
+  <button class="tombol-menu" type="button" aria-label="Menu">{{ ikon("menu") }}</button>
+  <a class="logo" href="/dasbor" aria-label="{{ NAMA_APLIKASI }}">
+    <span class="tanda">{{ ikon("kotak", "ikon", 2.2) }}</span>
+    <span class="kata">Predi<b>Stok</b></span>
+  </a>
+  <nav class="nav-atas">
+    <a href="/dasbor" class="{{ 'aktif' if menu == 'dasbor' }}">Dashboard</a>
+    <a href="/rekomendasi" class="{{ 'aktif' if menu in grup_rek }}">Rekomendasi</a>
+    <a href="/bahan" class="{{ 'aktif' if menu in grup_inventori }}">Inventori</a>
+    <a href="/simulasi" class="{{ 'aktif' if menu in grup_model }}">Analisis Model</a>
+  </nav>
+  <div class="kanan">
+    <a class="lonceng" href="/rekomendasi?filter=kritis" title="{{ notif.kritis }} bahan stok kritis, {{ notif.terlambat }} pesanan terlambat">
+      {{ ikon("lonceng") }}{% if notif.total %}<span class="titik">{{ notif.total }}</span>{% endif %}
+    </a>
+    <div class="outlet"><span class="lencana">LF</span><span class="nama-outlet">{{ nama_outlet }}</span></div>
+    <div class="tarik kanan">
+      <button class="pemicu ikon-saja" type="button" aria-label="Menu pengguna">{{ ikon("titik-v") }}</button>
+      <div class="daftar">
+        <a href="/pengaturan">{{ ikon("gerigi", "ikon-k") }} Pengaturan</a>
+        <a href="/keluar" class="bahaya">{{ ikon("keluar", "ikon-k") }} Keluar</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<aside class="sisi">
+  <div class="pilih-outlet">{{ ikon("toko", "ikon", 1.8) }}<div><small>Outlet</small><b>{{ nama_outlet }}</b></div></div>
+  <ul class="menu">
+    <li><a href="/dasbor" class="{{ 'aktif' if menu == 'dasbor' }}">{{ ikon("dasbor") }} Dashboard</a></li>
+    <li class="grup {{ 'buka induk-aktif' if menu in grup_rek }}" data-grup="rekomendasi">
+      <button type="button">{{ ikon("lampu") }} Rekomendasi {{ ikon("bawah", "panah") }}</button>
+      <ul>
+        <li><a href="/rekomendasi" class="{{ 'aktif' if menu == 'rekomendasi' }}">Rekomendasi Pemesanan
+          {% if notif.kritis %}<span class="lencana-menu merah">{{ notif.kritis }}</span>{% endif %}</a></li>
+        <li><a href="/prediksi" class="{{ 'aktif' if menu == 'prediksi' }}">Prediksi Kebutuhan</a></li>
+      </ul>
+    </li>
+    <li class="grup {{ 'buka induk-aktif' if menu in grup_inventori }}" data-grup="inventori">
+      <button type="button">{{ ikon("kotak") }} Inventori {{ ikon("bawah", "panah") }}</button>
+      <ul>
+        <li><a href="/bahan" class="{{ 'aktif' if menu == 'bahan' }}">Daftar Bahan Baku</a></li>
+        <li><a href="/pembelian" class="{{ 'aktif' if menu == 'pembelian' }}">Pembelian Stok
+          {% if notif.terlambat %}<span class="lencana-menu merah">{{ notif.terlambat }}</span>{% endif %}</a></li>
+        <li class="grup {{ 'buka induk-aktif' if menu in grup_stok }}" data-grup="kelola-stok">
+          <button type="button">Kelola Stok {{ ikon("bawah", "panah") }}</button>
+          <ul>
+            <li><a href="/stok" class="{{ 'aktif' if menu == 'stok' }}">Daftar Stok</a></li>
+            <li><a href="/stok/keluar" class="{{ 'aktif' if menu == 'keluar' }}">Stok Keluar Harian</a></li>
+            <li><a href="/stok/opname" class="{{ 'aktif' if menu == 'opname' }}">Stok Opname</a></li>
+            <li><a href="/stok/terbuang" class="{{ 'aktif' if menu == 'terbuang' }}">Stok Terbuang</a></li>
+            <li><a href="/stok/catatan" class="{{ 'aktif' if menu == 'catatan' }}">Catatan Barang Masuk</a></li>
+          </ul>
+        </li>
+      </ul>
+    </li>
+    <li class="grup {{ 'buka induk-aktif' if menu in grup_model }}" data-grup="model">
+      <button type="button">{{ ikon("batang") }} Analisis Model {{ ikon("bawah", "panah") }}</button>
+      <ul>
+        <li><a href="/evaluasi" class="{{ 'aktif' if menu == 'evaluasi' }}">Evaluasi Prediksi</a></li>
+        <li><a href="/simulasi" class="{{ 'aktif' if menu == 'simulasi' }}">Simulasi K1/K2/K3</a></li>
+        <li><a href="/pelatihan" class="{{ 'aktif' if menu == 'pelatihan' }}">Pelatihan Ulang</a></li>
+      </ul>
+    </li>
+    <li><a href="/pengaturan" class="{{ 'aktif' if menu == 'pengaturan' }}">{{ ikon("gerigi") }} Pengaturan</a></li>
+  </ul>
+  {% if pengguna %}
+  <div class="sisi-bawah">
+    <span class="avatar">{{ pengguna.nama[:1] | upper }}</span>
+    <div><b>{{ pengguna.nama }}</b><br><span style="opacity:.85">{{ pengguna.peran | capitalize }}</span></div>
+    <a class="keluar" href="/keluar">Keluar</a>
+  </div>
+  {% endif %}
+</aside>
+
+<main class="isi">
+  <div class="wadah">
+    {% if mode_demo %}
+    <div class="pita-demo">{{ ikon("info", "ikon-k") }} <b>Mode demo.</b> Stok keluar adalah data asli; stok opname awal, pembelian, stok terbuang, dan pembelian darurat
+      pada 4 minggu terakhir adalah hasil simulasi kebijakan K3.</div>
+    {% endif %}
+    {% if flash %}
+    <div class="kilat">
+      {% for f in flash %}<div class="{{ f.jenis }}"><span>{{ f.pesan }}</span><button class="tutup" type="button" aria-label="Tutup">&times;</button></div>{% endfor %}
+    </div>
+    {% endif %}
+    {% block isi %}{% endblock %}
+  </div>
+</main>
+<script src="/static/js/app.js?v=1"></script>
+{% block skrip %}{% endblock %}
+</body>
+</html>

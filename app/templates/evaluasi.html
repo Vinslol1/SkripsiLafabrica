@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% from "_ikon.html" import ikon %}
+{% block judul %}Evaluasi Prediksi{% endblock %}
+{% block isi %}
+{% if not ev %}
+<div class="info merah"><span class="i">!</span><div><b>Belum ada hasil evaluasi</b>Jalankan pelatihan untuk menghasilkan evaluasi model.</div><a class="tautan" href="/pelatihan">Pelatihan Ulang</a></div>
+{% else %}
+{% set rk = ev.xgb_ringkasan %}
+{% set x = rk | selectattr("Metode", "equalto", "xgboost") | first %}
+{% set ma = rk | selectattr("Metode", "equalto", "ma_7") | first %}
+<div class="kartu">
+  <div class="kartu-kepala">
+    <h1>Evaluasi Prediksi XGBoost</h1>
+    <div class="aksi"><a class="tombol" href="/laporan/{{ model.run_id }}/evaluasi">{{ ikon("unduh", "ikon-k") }} Unduh Laporan Excel</a></div>
+  </div>
+  <div class="kartu-isi kecil">
+    Model global XGBoost dengan target koreksi MA-7 (prediksi = rata-rata 7 hari + koreksi XGBoost), fitur lag 1 dan 7, rata-rata dan simpangan baku bergerak 7 hari,
+    hari, akhir pekan, dan identitas bahan. Data latih s.d. {{ ev.split.train_end | tgl }}, validasi s.d. {{ ev.split.val_end | tgl }}, uji {{ ev.periode_uji[0] | tgl }} – {{ ev.periode_uji[1] | tgl }}.
+    Hiperparameter terpilih (grid search, validasi silang rolling origin 4 lipatan):
+    {% for k, v in ev.best_params.items() %}{{ k }} = {{ v }}{{ ", " if not loop.last }}{% endfor %}.
+  </div>
+</div>
+
+<div class="grid empat" style="margin-top:18px">
+  <div class="kartu statistik hijau"><span class="label">nRMSE median XGBoost</span><span class="nilai">{{ x["nRMSE median"] | angka(3) }}</span>
+    <span class="bawah">MA-7: {{ ma["nRMSE median"] | angka(3) }} (lebih kecil lebih baik)</span></div>
+  <div class="kartu statistik"><span class="label">Bahan XGBoost lebih akurat dari MA-7</span>
+    <span class="nilai">{{ ev.xgb_menang_ma7 }} <small>/ {{ ev.xgb_n_bahan }}</small></span><span class="bawah">berdasarkan RMSE data uji per bahan</span></div>
+  <div class="kartu statistik"><span class="label">nMAE rata-rata XGBoost</span><span class="nilai">{{ x["nMAE rata-rata"] | angka(3) }}</span>
+    <span class="bawah">MA-7: {{ ma["nMAE rata-rata"] | angka(3) }}</span></div>
+  <div class="kartu statistik"><span class="label">Galat dinormalisasi</span><span class="nilai" style="font-size:19px">÷ rata-rata latih</span>
+    <span class="bawah">agar bahan bersatuan berbeda dapat diringkas (Persamaan 7)</span></div>
+</div>
+
+<div class="grid lebar-kiri" style="margin-top:18px">
+  <div class="kartu">
+    <div class="kartu-kepala"><h2>Ringkasan data uji</h2></div>
+    <div class="tabel-wadah">
+    <table class="tabel rapat">
+      <thead><tr><th>Metode</th><th class="angka">nMAE rata-rata</th><th class="angka">nRMSE rata-rata</th><th class="angka">nRMSE median</th><th class="angka">XGBoost lebih baik</th></tr></thead>
+      <tbody>{% for r in rk %}<tr class="{{ 'tebal' if r.Metode == 'xgboost' }}"><td>{{ {"xgboost": "XGBoost (koreksi MA-7)", "naive_mingguan": "Naive mingguan", "ma_7": "Rata-rata bergerak 7 hari", "rata_historis": "Rata-rata historis", "hibrida": "Hibrida"}.get(r.Metode, r.Metode) }}</td>
+        <td class="angka">{{ r["nMAE rata-rata"] | angka(3) }}</td><td class="angka">{{ r["nRMSE rata-rata"] | angka(3) }}</td><td class="angka">{{ r["nRMSE median"] | angka(3) }}</td>
+        <td class="angka">{{ (r["XGBoost menang (bahan)"] | int ~ " / " ~ ev.xgb_n_bahan) if r["XGBoost menang (bahan)"] is not none else "-" }}</td></tr>{% endfor %}</tbody>
+    </table>
+    </div>
+    <div class="kartu-isi kecil">nMAE/nRMSE = MAE/RMSE dibagi rata-rata pemakaian latih setiap bahan, lalu dirata-ratakan antarbahan. Kolom terakhir: jumlah bahan dengan RMSE XGBoost lebih kecil dari metode tersebut.</div>
+  </div>
+  <div class="kartu">
+    <div class="kartu-kepala"><h2>Galat prediksi rekursif per horizon</h2></div>
+    <div class="kartu-isi"><div class="grafik"><canvas id="grafik-horizon"></canvas></div>
+      <p class="kecil" style="margin-bottom:0">nMAE prediksi 1–7 hari ke depan pada data uji (prediksi hari berikutnya memakai prediksi sebelumnya sebagai fitur).</p></div>
+  </div>
+</div>
+
+{% if per %}
+<div class="kartu">
+  <div class="kartu-kepala"><h2>Per bahan (data uji)</h2>
+    <div class="aksi"><input type="search" placeholder="Saring bahan ..." data-saring-tabel="tabel-per-bahan">
+      <div class="segmen"><a href="?urut=nama" class="{{ 'aktif' if urut == 'nama' }}">Nama</a><a href="?urut=nrmse" class="{{ 'aktif' if urut == 'nrmse' }}">nRMSE</a><a href="?urut=selisih" class="{{ 'aktif' if urut == 'selisih' }}">Selisih vs MA-7</a></div></div></div>
+  <div class="tabel-wadah" style="max-height:620px;overflow:auto">
+  <table class="tabel rapat" id="tabel-per-bahan">
+    <thead><tr><th>Bahan</th><th>Kategori</th><th class="angka">Rata-rata/hari</th><th class="angka">RMSE XGBoost</th><th class="angka">RMSE MA-7</th>
+      <th class="angka">nRMSE XGBoost</th><th class="angka">σ<sub>e</sub></th><th>Metode terbaik (validasi)</th><th></th></tr></thead>
+    <tbody>{% for r in per %}<tr>
+      <td>{{ r.nama }} <span class="kecil">{{ r.sku }}</span></td><td>{{ r.kategori }}</td>
+      <td class="angka">{{ r.rata_pemakaian | angka_pas }} {{ (r.satuan or "") | lower }}</td>
+      <td class="angka">{{ r.RMSE_xgboost | angka_pas }}</td><td class="angka">{{ r.RMSE_ma_7 | angka_pas }}</td>
+      <td class="angka">{{ r.nrmse_xgb | angka(3) if r.nrmse_xgb is not none else "-" }}</td><td class="angka">{{ r.sigma_e | angka_pas }}</td>
+      <td>{{ r.metode_terbaik }}</td>
+      <td>{% if r.menang %}<span class="status hijau">XGBoost lebih baik</span>{% else %}<span class="status abu">MA-7 lebih baik</span>{% endif %}</td></tr>{% endfor %}</tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
+{% block skrip %}
+{% if ev %}
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script>
+(function () {
+  const h = {{ ev.xgb_horizon | json | safe }}, W = PrediStok.warna;
+  PrediStok.grafik("grafik-horizon", { type: "bar",
+    data: { labels: Object.keys(h).map((k) => k + " hari"), datasets: [{ label: "nMAE", data: Object.values(h), backgroundColor: W.hijau, borderRadius: 4 }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } } });
+})();
+</script>
+{% endif %}
+{% endblock %}
