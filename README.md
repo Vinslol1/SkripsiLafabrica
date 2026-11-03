@@ -37,8 +37,10 @@ berikutnya tanpa menghapus `.venv`.
 
 Saat dijalankan, aplikasi menambahkan data bawaan versi baru ke basis data yang lama. Yang ditambahkan hanya yang belum
 ada: hari stok keluar yang belum tercatat, hari catatan order atau barang masuk yang belum ada, dan model bawaan bila
-datanya lebih baru daripada semua model di riwayat. Model itu langsung aktif, dan model sebelumnya tetap bisa diaktifkan
-kembali dari riwayat Pelatihan Ulang. Nilai bahan yang masih berupa perkiraan dari data (isi kemasan, harga, dan biaya
+datanya lebih baru daripada semua model di riwayat. Model bawaan versi baru dengan data yang sama juga dipasang bila
+model aktif adalah model bawaan versi lama (misalnya versi ini menambahkan rincian harian simulasi), tetapi model hasil
+Pelatihan Ulang sendiri tidak diganti. Model itu langsung aktif, dan model sebelumnya tetap bisa diaktifkan kembali dari
+riwayat Pelatihan Ulang. Nilai bahan yang masih berupa perkiraan dari data (isi kemasan, harga, dan biaya
 kehabisan yang belum dikonfirmasi) dihitung ulang seperti pada instalasi baru. Data yang sudah ada di basis data,
 termasuk nilai yang diisi atau dikoreksi sendiri, tidak diubah. Untuk mode demo, buat ulang datanya dengan
 `jalankan_demo.bat --ulang-demo`.
@@ -100,7 +102,7 @@ bergerak membutuhkan pemakaian 7 hari berturut-turut. Data bawaan berakhir **2 N
 | **Dashboard** | Langkah harian, bahan kritis (posisi ≤ ROP), perkiraan nilai pesanan, pesanan dalam perjalanan, bahan hampir kedaluwarsa, ringkasan model aktif |
 | **Rekomendasi** | Rekomendasi Pemesanan (dengan detail per bahan), Prediksi Kebutuhan 7 hari, riwayat, ekspor Excel |
 | **Inventori** | Daftar Bahan Baku (format majoo, impor/ekspor Excel, sheet *Parameter PrediStok*), Pembelian Stok, Daftar Stok (awal, masuk, terjual, terbuang, selisih opname, akhir, stok minimum, dalam perjalanan, dan nilai stok per periode, mirip majoo), Kartu Stok per bahan, Stok Keluar Harian, Stok Opname, Stok Terbuang, Catatan Barang Masuk (tempel/impor laporan WhatsApp, unduh Excel terstruktur) |
-| **Analisis Model** | Evaluasi Prediksi (XGBoost dibanding naive mingguan, MA-7, dan rata-rata historis), Simulasi K1/K2/K3 (K1 aktual dan K1 statis, Tabel 4, unduh laporan Excel), Pelatihan Ulang beserta riwayat model |
+| **Analisis Model** | Evaluasi Prediksi (XGBoost dibanding naive mingguan, MA-7, dan rata-rata historis), Simulasi K1/K2/K3 (K1 aktual dan K1 statis, Tabel 4, asal biaya dan neraca nilai barang, rincian per bahan dengan sisa stok setiap hari, unduh laporan Excel), Pelatihan Ulang beserta riwayat model |
 | **Pengaturan** | Biaya pesan dan biaya simpan, opsi pelatihan, pengguna, kata sandi |
 
 **Hak akses.** *Admin* bisa melakukan semuanya. *Staf* bisa mencatat stok keluar, stok opname, dan stok terbuang,
@@ -146,6 +148,11 @@ biaya kehabisan (margin menu). Pembagian waktu: **latih** 1 Jul – 7 Sep, **val
    - Stok dipakai FIFO dan dibuang setelah melewati masa simpan. Kekurangan dihitung sebagai penjualan hilang.
    - Ada 5 tingkat stok awal (0; 0,5; 1; 2; 3 × rata-rata harian) dan 5 seed.
    - Metrik: TC (34), FR (35), WR (36), dan hari kehabisan. Perbandingan per bahan memakai uji Wilcoxon.
+   - Setiap run mencatat rincian harian: stok sebelum, ROP, barang datang, terbuang, pemakaian, kekurangan, sisa stok
+     akhir hari (setara hasil stok opname setelah pemakaian hari itu), dan biaya per komponen. Dari catatan ini terlihat
+     asal setiap komponen biaya: simpan = c_h × jumlah sisa harian, kehabisan = c_s × kekurangan, terbuang = harga ×
+     jumlah terbuang, pesan = c_o × jumlah pemesanan. Neraca setiap run: stok awal + barang datang = terpakai +
+     terbuang + sisa stok akhir.
 8. **K1 aktual (data histori cafe).** Barang masuk dari catatan WhatsApp cafe diputar ulang apa adanya: jumlah yang
    tercatat masuk pada hari t tiba di awal hari t (tanpa pembulatan kemasan dan tanpa batas kapasitas), lalu dipakai
    pemakaian aktual hari itu di lingkungan yang sama dengan nomor 7.
@@ -207,13 +214,52 @@ luar resep, takaran resep yang kurang tepat, dan stok untuk lebih dari 9 hari. S
 K1 aktual ada di ayam, daging, dan seafood yang masa simpannya masih nilai umum 3 hari, padahal kemungkinan disimpan
 beku. Jadi selisih K3 dan K2 terhadap K1 aktual adalah batas atas sampai hal ini dikonfirmasi ke cafe (bagian 6).
 
+**Asal biaya dan sisa stok, bahan utama 28 hari (rata-rata semua run).** Persen adalah bagian dari TC. Neraca nilai
+barang memakai harga beli: stok awal + barang datang = terpakai + terbuang + sisa stok akhir.
+
+| | K1 statis | K2 | K3 |
+|---|---:|---:|---:|
+| Biaya simpan | Rp 114.781 (1,5%) | Rp 69.916 (1,2%) | Rp 89.036 (2,1%) |
+| Biaya kehabisan | Rp 3.212.157 (41,5%) | Rp 2.109.394 (35,7%) | Rp 966.038 (22,5%) |
+| Biaya terbuang | Rp 3.712.791 (47,9%) | Rp 2.785.536 (47,1%) | Rp 2.191.240 (51,1%) |
+| Biaya pesan | Rp 709.200 (9,2%) | Rp 944.000 (16,0%) | Rp 1.041.520 (24,3%) |
+| Jumlah pemesanan | 354,6 | 472,0 | 520,8 |
+| Nilai stok awal | Rp 1.047.562 | Rp 1.047.562 | Rp 1.047.562 |
+| Nilai barang datang | Rp 26.607.623 | Rp 24.524.574 | Rp 24.601.450 |
+| Nilai terpakai | Rp 20.056.395 | Rp 20.255.851 | Rp 20.209.910 |
+| Nilai terbuang | Rp 3.712.791 | Rp 2.785.536 | Rp 2.191.240 |
+| Nilai sisa stok akhir (malam 2 November) | Rp 3.886.000 | Rp 2.530.749 | Rp 3.247.862 |
+
+K3 lebih murah Rp 3,46 juta daripada K1 karena biaya kehabisan turun Rp 2,25 juta dan biaya terbuang turun Rp 1,52 juta,
+sedangkan biaya pesan naik Rp 0,33 juta karena K3 lebih sering memesan. Biaya simpan kecil (paling banyak 2,1% TC)
+karena c_h hanya 0,1% harga per hari. Pada semua bahan (141), komponen K1 / K2 / K3 adalah: simpan Rp 293.971 /
+135.448 / 204.628, kehabisan Rp 4.353.950 / 2.665.278 / 2.383.300, terbuang Rp 4.712.388 / 4.101.909 / 2.515.899,
+dan pesan Rp 1.409.200 / 1.802.800 / 1.666.640.
+
+Pada K1 aktual (42 bahan utama, 9 hari, stok awal I_0), 79,5% biaya berasal dari bahan terbuang (Rp 2.503.389),
+sedangkan biaya kehabisan K3 hanya Rp 71.473. Nilai barang datang K1 aktual Rp 10.898.680, dan sisa stok akhir malam
+1 November Rp 4.691.736, hampir sama dengan nilai yang terpakai selama 9 hari itu (Rp 4.895.370). Sisa stok K3
+Rp 1.968.837 dan K2 Rp 1.415.927. Sisa stok K1 aktual per bahan (lembar *Rincian K1 Aktual*) adalah stok yang seharusnya
+ada bila pemakaian hanya sesuai resep. Bila cafe melakukan stok opname, selisih hasil hitungan dengan angka ini
+menunjukkan pemakaian di luar resep atau barang terbuang yang tidak tercatat.
+
 Pada kelompok semua bahan, fill rate K3 di bawah K1 dan K2. Penyebabnya, untuk bahan cepat rusak yang jarang dipakai,
 Q-Learning memilih tidak menyetok bila perkiraan biaya terbuang lebih besar daripada biaya kehabisan. Semua angka biaya
 masih bergantung pada parameter sementara di bagian 6.
 
 Laporan lengkap ada di folder `laporan/`. `evaluasi_xgboost.xlsx` memuat metrik per bahan dan per horizon.
-`simulasi_K1_K2_K3.xlsx` memuat Tabel 4, komponen biaya, per bahan, dan tuning. Keduanya juga bisa diunduh dari menu
-Analisis Model.
+`simulasi_K1_K2_K3.xlsx` memuat Tabel 4, komponen biaya, per bahan, dan tuning, ditambah lembar rincian:
+- *Cara Membaca Rincian*: arti setiap kolom dan rumus komponen biaya.
+- *Rincian Biaya*: komponen biaya (Rp dan persen dari TC) dan neraca nilai barang per kebijakan dan kelompok bahan.
+- *Rincian Per Bahan*: untuk setiap bahan dan kebijakan, parameter biaya, neraca barang, sisa stok akhir periode, dan
+  dasar perhitungan setiap komponen (rata-rata semua run).
+- *Harian Uji* dan *Sisa Stok Harian*: catatan harian satu run contoh (stok awal 1 × rata-rata pemakaian, K3 seed
+  pertama) dan sisa stok akhir setiap hari, untuk semua bahan.
+- *Rincian K1 Aktual* dan *Harian K1 Aktual*: hal yang sama untuk periode K1 aktual (taksiran stok awal aktual).
+
+Keduanya juga bisa diunduh dari menu Analisis Model. Di halaman Simulasi, klik nama bahan untuk melihat rincian bahan
+itu: asal biaya, neraca barang, grafik sisa stok, dan catatan harian setiap kebijakan untuk stok awal dan seed yang
+dipilih.
 
 ---
 
@@ -314,7 +360,7 @@ aplikasi/
 │  ├─ static/      CSS, JS, Chart.js (tersimpan lokal, tanpa CDN)
 │  ├─ seed.py      pengisian awal (dan pembaruan versi) dari data_awal dan artefak
 │  └─ demo.py      riwayat simulasi untuk mode demo
-├─ ml/             xgb.py, kebijakan.py, lingkungan.py, qlearning.py, simulasi.py, master.py, pipeline.py
+├─ ml/             xgb.py, kebijakan.py, lingkungan.py, qlearning.py, simulasi.py, rincian.py, master.py, pipeline.py
 ├─ data_awal/      file Excel dari majoo (bahan, resep, stok keluar harian); penjualan/ berisi ekspor transaksi
 │                  sumber stok keluar; catatan_manual/ berisi laporan WhatsApp order dan barang masuk
 ├─ alat/           bangun_stok_keluar.py: transaksi penjualan x resep -> stok keluar harian per bahan;
@@ -334,12 +380,14 @@ aktif, dan model lama bisa diaktifkan kembali dari riwayat. Dari baris perintah,
 Caranya: pasang `pymysql`, lalu atur variabel lingkungan
 `DATABASE_URL=mysql+pymysql://user:sandi@localhost/predistok?charset=utf8mb4` sebelum menjalankan.
 
-**Pengujian.** `.venv\Scripts\python -m pytest` menjalankan 30 uji. Cakupannya: rumus Persamaan 1–3, 17, 21, dan
+**Pengujian.** `.venv\Scripts\python -m pytest` menjalankan 34 uji. Cakupannya: rumus Persamaan 1–3, 17, 21, dan
 25–28, lingkungan FIFO, batas kapasitas, jadwal ε, K1 aktual (pemutaran ulang barang masuk, taksiran stok awal,
 rentang hari berlaporan), perapian catatan WhatsApp (jumlah, satuan, pecahan, pencocokan bahan), alur harian lewat
 HTTP (opname, rekomendasi, pesan, terima, hari belum tercatat, kafe tutup), alur Catatan Barang Masuk (tempel, unduh,
 koreksi, impor, hapus), pembaruan basis data dari versi sebelumnya (data bawaan baru ditambahkan tanpa mengubah data
-lama), CSRF, hak akses, serta impor/ekspor Excel.
+lama, model bawaan baru dengan data yang sama hanya menggantikan model bawaan lama), rincian harian simulasi (total
+harian sama dengan total setiap run, neraca barang seimbang) dan halaman rincian per bahan, CSRF, hak akses, serta
+impor/ekspor Excel.
 
 **Keamanan.** Secara bawaan server hanya bisa dibuka dari komputer itu sendiri (127.0.0.1). Setiap halaman wajib login
 dan setiap formulir memakai token CSRF. Kunci sesi dibuat acak saat pertama dijalankan dan disimpan di `.kunci_sesi`.

@@ -73,3 +73,47 @@ def test_basis_data_versi_lama_dilengkapi_tanpa_mengubah_data_yang_ada(aplikasi,
     db.expire_all()
     assert db.query(ModelRun).count() == n_run + 1
     assert db.query(StokKeluar).filter(StokKeluar.tanggal == akhir).count() == (awal["Tanggal"] == akhir).sum()
+
+
+def test_model_bawaan_baru_dengan_data_sama_menggantikan_model_bawaan_lama(aplikasi, db):
+    """Versi aplikasi baru membawa model bawaan yang dilatih ulang dengan data yang sama (mis. kini dengan rincian
+    harian): model bawaan aktif yang lama diganti, tetapi model hasil Pelatihan Ulang pengguna tidak."""
+    import shutil
+
+    import config as C
+    from app import seed
+    from app.layanan import model_aktif as MA
+    from app.layanan import pengaturan as PG
+    from app.models import ModelRun
+    from ml import rincian as RC
+
+    def lupakan_penanda():
+        PG.simpan(db, {seed.KUNCI_DATA_AWAL: {**seed._penanda(db), "model": "versi-lama"}})
+
+    aktif = db.query(ModelRun).filter(ModelRun.aktif.is_(True)).one()
+    assert aktif.dibuat_oleh == "sistem"
+    (MA.folder_run(aktif) / RC.BERKAS).unlink(missing_ok=True)     # model bawaan versi lama: tanpa rincian harian
+    n_run = db.query(ModelRun).count()
+    lupakan_penanda()
+    seed.jalankan(log=lambda *_: None)
+    db.expire_all()
+    baru = db.query(ModelRun).filter(ModelRun.aktif.is_(True)).one()
+    assert baru.id != aktif.id and db.query(ModelRun).count() == n_run + 1
+    assert baru.data_sampai == db.get(ModelRun, aktif.id).data_sampai
+    assert (MA.folder_run(baru) / RC.BERKAS).exists() and MA.ambil(db).run_id == baru.id
+
+    seed.jalankan(log=lambda *_: None)                              # penanda sudah sama: tidak didaftarkan lagi
+    assert db.query(ModelRun).count() == n_run + 1
+
+    baru.dibuat_oleh = "admin"                                      # model hasil Pelatihan Ulang pengguna
+    db.commit()
+    (MA.folder_run(baru) / RC.BERKAS).unlink()
+    lupakan_penanda()
+    seed.jalankan(log=lambda *_: None)
+    db.expire_all()
+    assert db.query(ModelRun).count() == n_run + 1
+    assert db.query(ModelRun).filter(ModelRun.aktif.is_(True)).one().id == baru.id
+    shutil.copy2(C.ARTEFAK / RC.BERKAS, MA.folder_run(baru) / RC.BERKAS)   # pulihkan untuk uji lain
+    baru.dibuat_oleh = "sistem"
+    db.commit()
+    MA.lupakan()

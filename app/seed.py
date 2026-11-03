@@ -9,7 +9,8 @@ Dijalankan otomatis oleh run.py setiap kali aplikasi dimulai. Bila basis data ma
 
 Bila basis data berasal dari versi sebelumnya, data bawaan yang lebih baru ditambahkan tanpa mengubah data yang
 sudah ada (lengkapi_dari_data_awal): hari stok keluar yang belum tercatat, hari catatan yang belum ada, dan model
-bawaan bila datanya lebih baru daripada semua model yang ada. Nilai bahan yang masih berupa perkiraan dari data
+bawaan bila datanya lebih baru daripada semua model yang ada (atau datanya sama dengan model bawaan yang sedang aktif
+tetapi berkasnya lebih baru, mis. kini dengan rincian harian simulasi). Nilai bahan yang masih berupa perkiraan dari data
 (isi kemasan, harga, biaya kehabisan yang belum dikonfirmasi) dihitung ulang seperti pada instalasi baru.
 """
 import hashlib
@@ -19,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from sqlalchemy import func, insert, inspect, text
+from sqlalchemy import insert, inspect, text
 
 import config as C
 from app.auth import hash_sandi
@@ -29,6 +30,7 @@ from app.layanan import pengaturan as PG
 from app.models import Bahan, CatatanBarang, ModelRun, PencatatanHarian, Pengguna, SatuanBahan, StokKeluar
 
 BERKAS_MODEL = ["xgb_model.json", "xgb_meta.json", "qtable.npz", "qtable_meta.json", "evaluasi.json"]
+BERKAS_MODEL_OPSIONAL = ["simulasi_harian.npz"]     # rincian harian simulasi; model lama tidak memilikinya
 BERKAS_LAPORAN = ["evaluasi_xgboost.xlsx", "simulasi_K1_K2_K3.xlsx"]
 # Pengaturan internal: sidik berkas data_awal yang sudah dimasukkan, agar pemeriksaan saat mulai cukup sekali.
 KUNCI_DATA_AWAL = "data_awal_terpakai"
@@ -170,6 +172,15 @@ def _artefak_lengkap() -> bool:
     return all((C.ARTEFAK / f).exists() for f in BERKAS_MODEL)
 
 
+def _berkas_artefak(folder) -> list:
+    folder = Path(folder)
+    return [folder / f for f in BERKAS_MODEL + BERKAS_MODEL_OPSIONAL if (folder / f).exists()]
+
+
+def _sidik_artefak(folder) -> str:
+    return _sidik(*_berkas_artefak(folder))
+
+
 def _daftarkan_artefak(db, keterangan: str, aktif: bool) -> ModelRun:
     """Salin artefak/ (dan laporan/) ke folder model baru, lalu daftarkan sebagai run selesai."""
     run = ModelRun(status="selesai", jenis="lengkap", aktif=aktif, dibuat_oleh="sistem", mulai=datetime.now())
@@ -177,8 +188,8 @@ def _daftarkan_artefak(db, keterangan: str, aktif: bool) -> ModelRun:
     db.flush()
     tujuan = C.FOLDER_MODEL / f"run_{run.id}"
     tujuan.mkdir(parents=True, exist_ok=True)
-    for f in BERKAS_MODEL:
-        shutil.copy2(C.ARTEFAK / f, tujuan / f)
+    for f in _berkas_artefak(C.ARTEFAK):
+        shutil.copy2(f, tujuan / f.name)
     for f in BERKAS_LAPORAN:
         if (C.LAPORAN / f).exists():
             shutil.copy2(C.LAPORAN / f, tujuan / f)
@@ -201,6 +212,7 @@ def isi_model_awal(db, log=print):
         log("Artefak pelatihan awal belum ada; jalankan pelatihan dari menu Pelatihan Ulang.")
         return
     run = _daftarkan_artefak(db, "Model hasil pelatihan awal (python -m ml.pipeline --tuning).", aktif=True)
+    _catat_penanda(db, model=_sidik_artefak(C.ARTEFAK))
     log(f"Model awal terdaftar (data s.d. {run.data_sampai})")
 
 
@@ -287,23 +299,40 @@ def lengkapi_catatan(db, log=print):
 
 
 def lengkapi_model(db, log=print):
-    """Daftarkan model bawaan (artefak/) sebagai model aktif bila datanya lebih baru daripada semua model yang ada.
-    Model sebelumnya tetap ada di riwayat dan bisa diaktifkan kembali dari menu Pelatihan Ulang."""
+    """Daftarkan model bawaan (artefak/) sebagai model aktif bila:
+      - datanya lebih baru daripada semua model yang ada, atau
+      - datanya sama dengan model aktif yang juga model bawaan, tetapi berkasnya berbeda (versi aplikasi baru
+        membawa model bawaan yang dilatih ulang dengan data yang sama, mis. kini dengan rincian harian simulasi).
+    Model hasil Pelatihan Ulang pengguna dengan data yang sama atau lebih baru tidak diganti. Model sebelumnya
+    tetap ada di riwayat dan bisa diaktifkan kembali dari menu Pelatihan Ulang. Setiap versi artefak diperiksa
+    sekali (penanda sidik di pengaturan)."""
     if not db.query(ModelRun).count() or not _artefak_lengkap():
+        return
+    sidik = _sidik_artefak(C.ARTEFAK)
+    if _penanda(db).get("model") == sidik:
         return
     meta = json.loads((C.ARTEFAK / "xgb_meta.json").read_text(encoding="utf-8"))
     sampai = pd.Timestamp(meta["data_sampai"]).date()
-    terakhir = db.query(func.max(ModelRun.data_sampai)).filter(ModelRun.status == "selesai").scalar()
-    if terakhir is not None and sampai <= terakhir:
+    selesai = db.query(ModelRun).filter(ModelRun.status == "selesai").all()
+    if any(r.data_sampai == sampai and r.folder and _sidik_artefak(MA.folder_run(r)) == sidik for r in selesai):
+        _catat_penanda(db, model=sidik)          # sudah terdaftar (basis data dari versi tanpa penanda model)
         return
-    run = _daftarkan_artefak(db, "Model bawaan versi baru (artefak/), didaftarkan otomatis saat aplikasi "
-                                 "diperbarui.", aktif=False)
-    db.query(ModelRun).filter(ModelRun.id != run.id).update({ModelRun.aktif: False})
-    run.aktif = True
-    db.commit()
-    MA.lupakan()
-    log(f"Model bawaan yang lebih baru (data s.d. {sampai}) didaftarkan dan diaktifkan. Model sebelumnya tetap "
-        f"ada di riwayat Pelatihan Ulang.")
+    terakhir = max((r.data_sampai for r in selesai if r.data_sampai), default=None)
+    aktif = next((r for r in selesai if r.aktif), None)
+    lebih_baru = terakhir is None or sampai > terakhir
+    bawaan_sama = (aktif is not None and aktif.dibuat_oleh == "sistem" and aktif.data_sampai == sampai
+                   and sampai >= terakhir)
+    if lebih_baru or bawaan_sama:
+        run = _daftarkan_artefak(db, "Model bawaan versi baru (artefak/), didaftarkan otomatis saat aplikasi "
+                                     "diperbarui.", aktif=False)
+        db.query(ModelRun).filter(ModelRun.id != run.id).update({ModelRun.aktif: False})
+        run.aktif = True
+        db.commit()
+        MA.lupakan()
+        alasan = "yang lebih baru" if lebih_baru else "versi baru dengan data yang sama"
+        log(f"Model bawaan {alasan} (data s.d. {sampai}) didaftarkan dan diaktifkan. Model sebelumnya tetap ada di "
+            f"riwayat Pelatihan Ulang.")
+    _catat_penanda(db, model=sidik)
 
 
 def lengkapi_dari_data_awal(db, log=print):

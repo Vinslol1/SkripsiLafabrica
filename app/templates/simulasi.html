@@ -81,8 +81,12 @@
         <dt>Fill rate</dt><dd>{{ d.FR_rata_mean | persen }}</dd>
         <dt>Rasio terbuang</dt><dd>{{ d.WR_rata_mean | persen }}</dd>
         <dt>Hari kehabisan</dt><dd>{{ d.hari_stockout_mean | angka(1) }}</dd>
-        <dt>Nilai terbuang</dt><dd>{{ d.terbuang_nilai_mean | rupiah }}</dd>
         <dt>Pemesanan/kedatangan</dt><dd>{{ d.jumlah_pesan_mean | angka(1) }}</dd>
+        <dt>Biaya simpan</dt><dd>{{ d.b_h_mean | rupiah }}</dd>
+        <dt>Biaya kehabisan</dt><dd>{{ d.b_s_mean | rupiah }}</dd>
+        <dt>Biaya terbuang</dt><dd>{{ d.b_w_mean | rupiah }}</dd>
+        <dt>Biaya pesan</dt><dd>{{ d.b_o_mean | rupiah }}</dd>
+        {% if d.nilai_sisa_mean is defined %}<dt>Nilai sisa stok akhir</dt><dd>{{ d.nilai_sisa_mean | rupiah }}</dd>{% endif %}
       </dl>
     </div>
     {% endfor %}
@@ -123,7 +127,7 @@
         <th class="angka">Fill rate K1 aktual / K2 / K3</th><th class="angka">Terbuang K1 aktual / K2 / K3</th></tr></thead>
       <tbody>
       {% for r in ak.per_bahan | sort(attribute="K1A_TC", reverse=true) if r.utama or kelompok == "semua" or not ak.kebijakan.utama.n_bahan %}
-        <tr><td>{{ r.nama }} <span class="kecil">{{ r.sku }}</span></td>
+        <tr><td><a href="/simulasi/bahan/{{ r.sku }}#aktual">{{ r.nama }}</a> <span class="kecil">{{ r.sku }}</span></td>
           <td class="angka">{{ r.diterima_aktual | angka_pas }} / {{ r.pakai_aktual | angka_pas }}</td>
           <td class="angka">{{ r.stok_awal_taksiran | angka_pas }}</td>
           <td class="angka">{{ r.K1A_TC | rupiah }}</td><td class="angka">{{ r.K1_TC | rupiah }}</td><td class="angka">{{ r.K2_TC | rupiah }}</td><td class="angka">{{ r.K3_TC | rupiah if r.K3_TC is not none else "-" }}</td>
@@ -183,6 +187,42 @@
   </div>
 </div>
 
+<div class="kartu" style="margin-top:18px" id="asal-biaya">
+  <div class="kartu-kepala"><h2>Asal biaya dan sisa stok ({{ "bahan utama" if kelompok == "utama" else "semua bahan" }})</h2></div>
+  <div class="tabel-wadah">
+  <table class="tabel rapat">
+    <thead><tr><th>Komponen</th><th>Cara hitung (setiap bahan, setiap hari)</th>{% for v in ["K1", "K2", "K3"] %}<th class="angka">{{ nama_varian[v].split(" · ")[0] }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for c, label, cara in [("b_h", "Biaya simpan", "c_h × sisa stok akhir hari; c_h = harga × biaya simpan per hari"),
+                              ("b_s", "Biaya kehabisan", "c_s × pemakaian yang tidak terpenuhi (penjualan hilang)"),
+                              ("b_w", "Biaya terbuang", "harga × jumlah yang dibuang karena melewati masa simpan"),
+                              ("b_o", "Biaya pesan", "c_o × 1 bila ada barang datang dari pesanan")] %}
+      <tr><td class="tebal">{{ label }}</td><td class="kecil">{{ cara }}</td>
+        {% for v in ["K1", "K2", "K3"] %}{% set d = tot[v] %}<td class="angka">{{ d[c ~ "_mean"] | rupiah }}
+          <span class="kecil">({{ (d[c ~ "_mean"] / d.TC_mean) | persen(0) if d.TC_mean else "-" }})</span></td>{% endfor %}</tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr class="tebal"><td>Total biaya (TC)</td><td class="kecil">jumlah keempat komponen selama 28 hari</td>
+      {% for v in ["K1", "K2", "K3"] %}<td class="angka">{{ tot[v].TC_mean | rupiah }}</td>{% endfor %}</tr></tfoot>
+  </table>
+  {% if tot.K1.nilai_sisa_mean is defined %}
+  <table class="tabel rapat" style="margin-top:6px">
+    <thead><tr><th>Neraca nilai barang (harga beli)</th><th></th>{% for v in ["K1", "K2", "K3"] %}<th class="angka">{{ nama_varian[v].split(" · ")[0] }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      <tr><td>Nilai stok awal</td><td class="kecil">stok awal simulasi × harga</td>{% for v in ["K1", "K2", "K3"] %}<td class="angka">{{ tot[v].nilai_awal_mean | rupiah }}</td>{% endfor %}</tr>
+      <tr><td>+ Nilai barang datang</td><td class="kecil">pembelian selama periode (bukan bagian TC)</td>{% for v in ["K1", "K2", "K3"] %}<td class="angka">{{ tot[v].nilai_diterima_mean | rupiah }}</td>{% endfor %}</tr>
+      <tr><td>− Nilai terpakai</td><td class="kecil">pemakaian yang terpenuhi</td>{% for v in ["K1", "K2", "K3"] %}<td class="angka">{{ tot[v].nilai_terpakai_mean | rupiah }}</td>{% endfor %}</tr>
+      <tr><td>− Nilai terbuang</td><td class="kecil">sama dengan biaya terbuang</td>{% for v in ["K1", "K2", "K3"] %}<td class="angka">{{ tot[v].terbuang_nilai_mean | rupiah }}</td>{% endfor %}</tr>
+      <tr class="tebal"><td>= Nilai sisa stok akhir {{ ev.periode_uji[1] | tgl }}</td><td class="kecil">yang akan terhitung saat stok opname akhir periode</td>{% for v in ["K1", "K2", "K3"] %}<td class="angka">{{ tot[v].nilai_sisa_mean | rupiah }}</td>{% endfor %}</tr>
+    </tbody>
+  </table>
+  {% endif %}
+  </div>
+  <div class="kartu-isi kecil">Rata-rata semua run, dijumlah seluruh bahan dalam kelompok; persen = bagian dari total biaya. Klik nama bahan pada tabel
+    Hasil per bahan untuk melihat dasar perhitungan setiap komponen dan catatan harian, termasuk sisa stok setiap akhir hari.{% if tot.K1.nilai_sisa_mean is not defined %}
+    Neraca nilai barang tersedia setelah <a href="/pelatihan">Pelatihan Ulang</a>.{% endif %}</div>
+</div>
+
 <div class="grid dua" style="margin-top:18px">
   <div class="kartu">
     <div class="kartu-kepala"><h2>Kurva pelatihan Q-Learning</h2></div>
@@ -216,7 +256,7 @@
     {% for r in per %}
       {% set tcs = {"K1": r.K1_TC, "K2": r.K2_TC, "K3": r.K3_TC} %}
       {% set mn = [r.K1_TC or 0, r.K2_TC or 0, r.K3_TC or 0] | min %}
-      <tr><td>{{ r.nama }} <span class="kecil">{{ r.sku }}</span></td>
+      <tr><td><a href="/simulasi/bahan/{{ r.sku }}">{{ r.nama }}</a> <span class="kecil">{{ r.sku }}</span></td>
         {% for v in ["K1", "K2", "K3"] %}<td class="angka {{ 'tebal' if (tcs[v] or 0) <= mn + 0.5 }}">{{ tcs[v] | rupiah }}</td>{% endfor %}
         <td class="angka">{{ r.K1_FR | persen(0) }} / {{ r.K2_FR | persen(0) }} / {{ r.K3_FR | persen(0) }}</td>
         <td class="angka">{{ r.K1_hari_stockout | angka(1) }} / {{ r.K2_hari_stockout | angka(1) }} / {{ r.K3_hari_stockout | angka(1) }}</td>
@@ -228,7 +268,8 @@
     </tbody>
   </table>
   </div>
-  <div class="kartu-isi kecil">Diurutkan dari biaya K1 statis terbesar. Biaya per bahan adalah rata-rata 5 stok awal (dan 5 seed untuk K3) selama 28 hari.</div>
+  <div class="kartu-isi kecil">Diurutkan dari biaya K1 statis terbesar. Biaya per bahan adalah rata-rata 5 stok awal (dan 5 seed untuk K3) selama 28 hari.
+    Klik nama bahan untuk melihat asal biaya, neraca barang, dan sisa stok setiap hari.</div>
 </div>
 {% endif %}
 {% endblock %}
