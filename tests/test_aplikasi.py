@@ -9,7 +9,15 @@ from openpyxl import Workbook, load_workbook
 
 from conftest import masuk, pesan_kilat
 
-T = date(2026, 10, 25)          # hari terakhir data stok keluar awal
+def _hari_terakhir_data_awal() -> date:
+    """Hari terakhir di file stok keluar bawaan (data_awal), sama dengan yang diisi ke basis data uji."""
+    import pandas as pd
+    import config as C
+    t = pd.read_excel(C.FILE_STOK_KELUAR, sheet_name="Stok Keluar (Long)", usecols=["Tanggal"])["Tanggal"]
+    return pd.to_datetime(t).max().date()
+
+
+T = _hari_terakhir_data_awal()
 
 
 def _bahan_model(db, n=3):
@@ -101,7 +109,8 @@ def test_alur_harian_rekomendasi_pesan_terima(admin, db):
     # 2. stok opname akhir hari T: a habis, b jauh di atas kapasitas simpan, c sedang
     r = admin.post("/stok/opname", data={"tanggal": str(T), f"fisik_{a.id}": "0",
                                          f"fisik_{b.id}": str(int(10 * kap_b)), f"fisik_{c.id}": "1.000"})
-    assert "Stok opname 25 Okt 2026 tersimpan untuk 3 bahan." in pesan_kilat(r.text)
+    from app.web import tgl
+    assert f"Stok opname {tgl(T)} tersimpan untuk 3 bahan." in pesan_kilat(r.text)
 
     # 3. hitung rekomendasi (Gambar 3)
     r = admin.post("/rekomendasi/hitung", data={"tanggal": str(T)})

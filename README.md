@@ -35,6 +35,14 @@ Ekstrak `PrediStok.zip` yang baru ke folder yang sama dan pilih **Replace** untu
 Bila daftar pustaka di `requirements.txt` berubah, `jalankan.bat` memasang pustaka yang kurang saat dijalankan
 berikutnya tanpa menghapus `.venv`.
 
+Saat dijalankan, aplikasi menambahkan data bawaan versi baru ke basis data yang lama. Yang ditambahkan hanya yang belum
+ada: hari stok keluar yang belum tercatat, hari catatan order atau barang masuk yang belum ada, dan model bawaan bila
+datanya lebih baru daripada semua model di riwayat. Model itu langsung aktif, dan model sebelumnya tetap bisa diaktifkan
+kembali dari riwayat Pelatihan Ulang. Nilai bahan yang masih berupa perkiraan dari data (isi kemasan, harga, dan biaya
+kehabisan yang belum dikonfirmasi) dihitung ulang seperti pada instalasi baru. Data yang sudah ada di basis data,
+termasuk nilai yang diisi atau dikoreksi sendiri, tidak diubah. Untuk mode demo, buat ulang datanya dengan
+`jalankan_demo.bat --ulang-demo`.
+
 ### Mode demo untuk presentasi
 
 Klik dua kali **`jalankan_demo.bat`**. Mode ini memakai basis data terpisah (`predistok_demo.db`) yang berisi riwayat
@@ -69,8 +77,8 @@ Di macOS/Linux, jalankan `./jalankan.sh` (bisa ditambah `--demo`).
 | Setiap hari, selama cafe masih mencatat manual | Inventori → Kelola Stok → **Catatan Barang Masuk** | Tempel laporan WhatsApp "REPORT ORDER tanggal ..." dan "barang masuk hari ini tanggal ...". Aplikasi merapikannya per baris, mencocokkan nama barang dengan data bahan, dan mengubah jumlahnya ke satuan dasar. Barang masuk dipakai Simulasi **K1 aktual**. Catatan ini tidak mengubah Daftar Stok. |
 
 Rekomendasi tidak dihitung bila ada hari dalam 7 hari terakhir yang belum dicatat, karena fitur lag dan rata-rata
-bergerak membutuhkan pemakaian 7 hari berturut-turut. Data bawaan berakhir **25 Oktober 2026**, jadi stok keluar sejak
-26 Oktober perlu dicatat (atau ditandai tutup) sebelum rekomendasi hari ini bisa dihitung.
+bergerak membutuhkan pemakaian 7 hari berturut-turut. Data bawaan berakhir **2 November 2026**, jadi stok keluar sejak
+3 November perlu dicatat (atau ditandai tutup) sebelum rekomendasi hari ini bisa dihitung.
 
 ### Membaca rekomendasi
 
@@ -78,9 +86,10 @@ bergerak membutuhkan pemakaian 7 hari berturut-turut. Data bawaan berakhir **25 
   dipakai bila state hari itu tidak pernah ditemui saat pelatihan.
 - Ikon mata membuka perhitungan lengkap satu bahan: Persamaan 21, 24, 25, dan 27 dengan angka, nilai Q setiap aksi,
   kapasitas simpan, serta grafik pemakaian dan prediksi.
-- K3 bisa sengaja merekomendasikan **0** untuk bahan cepat rusak yang jarang dipakai. Contohnya Bomboloni: hanya
-  dipakai 2 pcs dalam 28 hari, dengan masa simpan 3 hari. Di sini perkiraan biaya terbuang lebih besar daripada biaya
-  kehabisan. Jumlah tetap bisa diubah sebelum pesanan dibuat.
+- K3 bisa sengaja merekomendasikan **0** untuk bahan cepat rusak yang jarang dipakai. Contohnya Buko Pandan: hanya
+  dipakai 6 pcs dalam 28 hari uji, masa simpannya 3 hari, dan harga belinya Rp 18.000 per pcs sedangkan biaya
+  kehabisannya Rp 5.000 per pcs. Di sini perkiraan biaya terbuang lebih besar daripada biaya kehabisan, sehingga pada
+  simulasi K3 tidak pernah memesan. Jumlah tetap bisa diubah sebelum pesanan dibuat.
 
 ---
 
@@ -102,16 +111,17 @@ atau pengguna.
 
 ## 4. Metode (ringkas)
 
-**Data.** Stok keluar harian 1 Juli – 25 Oktober 2026 (117 hari, 20.124 baris) dari `Stok_Keluar_Harian_Bahan_Baku.xlsx`.
+**Data.** Stok keluar harian 1 Juli – 2 November 2026 (125 hari, 21.500 baris) dari `Stok_Keluar_Harian_Bahan_Baku.xlsx`,
+hasil perkalian transaksi penjualan majoo dengan resep produk (`alat/bangun_stok_keluar.py`, sumber di `data_awal/penjualan/`).
 Daftar bahan dari ekspor majoo (191 bahan, 179 dimonitor). Resep produk dipakai untuk memperkirakan harga (HPP) dan
-biaya kehabisan (margin menu). Pembagian waktu: **latih** 1 Jul – 30 Agu, **validasi** 31 Agu – 27 Sep, **uji**
-28 Sep – 25 Okt 2026 (28 hari). Ada 140 bahan yang memiliki riwayat cukup untuk dimodelkan.
+biaya kehabisan (margin menu). Pembagian waktu: **latih** 1 Jul – 7 Sep, **validasi** 8 Sep – 5 Okt, **uji**
+6 Okt – 2 Nov 2026 (28 hari). Ada 141 bahan yang memiliki riwayat cukup untuk dimodelkan.
 
 1. **XGBoost** (subbab 8.4–8.5, porting dari notebook). Satu model global untuk semua bahan.
    - Fitur: lag 1 dan 7, rata-rata dan simpangan baku bergerak 7 hari, hari, akhir pekan, identitas bahan.
    - Data dinormalisasi terhadap rata-rata data latih (Persamaan 7). Targetnya adalah koreksi terhadap MA-7.
    - Grid search 108 kombinasi dengan validasi silang *rolling origin* 4 lipatan mingguan. Hasil terbaik:
-     `n_estimators` 100, `max_depth` 2, `learning_rate` 0,03, `subsample` 0,8, `colsample_bytree` 1,0.
+     `n_estimators` 100, `max_depth` 2, `learning_rate` 0,03, `subsample` 0,8, `colsample_bytree` 0,8.
    - σe diambil dari galat *out-of-sample* (Persamaan 22–23). Prediksi dibuat rekursif hingga 7 hari.
 2. **ROP dinamis** (21): ROP = ŷ(t+1) + Z·σe·√L, dengan Z = 1,65 dan L = 1 hari. Nilainya ditulis ke Stok Minimum.
 3. **Stok target** (25): OUT = ŷ(t+1) + ŷ(t+2) + Z·σe·√(L+1).
@@ -152,39 +162,52 @@ biaya kehabisan (margin menu). Pembagian waktu: **latih** 1 Jul – 30 Agu, **va
 
 ---
 
-## 5. Hasil model aktif (pelatihan awal, data stok keluar s.d. 25 Oktober 2026)
+## 5. Hasil model aktif (pelatihan 3 November 2026, data stok keluar s.d. 2 November 2026)
 
-**Prediksi (periode uji, 140 bahan).** nRMSE median XGBoost **0,794**. Pembanding: MA-7 0,850, rata-rata historis
-0,925, naive mingguan 1,190. RMSE XGBoost lebih kecil daripada MA-7 pada **114 dari 140** bahan.
+**Prediksi (periode uji 6 Oktober – 2 November, 141 bahan).** nRMSE median XGBoost **0,766**. Pembanding: MA-7 0,792,
+rata-rata historis 0,883, naive mingguan 1,119. RMSE XGBoost lebih kecil daripada MA-7 pada **114 dari 141** bahan.
 
-**Simulasi 28 hari, bahan utama (47 bahan cepat rusak yang rutin dipakai):**
+**Simulasi 28 hari, bahan utama (49 bahan cepat rusak yang rutin dipakai):**
 
 | | K1 statis (ROP statis + EOQ) | K2 ROP dinamis + order-up-to | K3 ROP dinamis + Q-Learning |
 |---|---:|---:|---:|
-| Total biaya 28 hari (TC) | Rp 8.250.039 | Rp 6.338.814 | **Rp 3.981.405** |
-| Fill rate (FR) | 94,3% | 95,5% | **98,0%** |
-| Rasio terbuang (WR) | 24,9% | 20,6% | **19,8%** |
-| Hari kehabisan (bahan-hari) | 66,8 | 50,6 | **27,8** |
+| Total biaya 28 hari (TC) | Rp 7.748.929 | Rp 5.908.846 | **Rp 4.287.835** |
+| Fill rate (FR) | 95,7% | 96,6% | **97,6%** |
+| Rasio terbuang (WR) | 20,4% | **16,7%** | 17,4% |
+| Hari kehabisan (bahan-hari) | 63,2 | 50,4 | **34,4** |
 
 Hasil uji per bahan:
 
-- K3 lebih murah daripada K1 pada 38 dari 47 bahan (p Wilcoxon = 4,9 × 10⁻⁸, median rasio biaya 0,70).
-- K3 lebih murah daripada K2 pada 37 dari 47 bahan (p = 1,6 × 10⁻⁶, median rasio 0,75).
-- K2 lebih murah daripada K1 pada 27 dari 47 bahan (p = 0,031, median rasio 0,95).
+- K3 lebih murah daripada K1 pada 32 dari 49 bahan (p Wilcoxon = 1,1 × 10⁻⁴, median rasio biaya 0,82).
+- K3 lebih murah daripada K2 pada 33 dari 49 bahan (p = 5,3 × 10⁻⁴, median rasio 0,81).
+- K2 lebih murah daripada K1 pada 25 dari 49 bahan (p = 0,039, median rasio 0,92).
 
-**Simulasi, semua bahan (140):**
+**Simulasi, semua bahan (141):**
 
-- TC: K1 Rp 11.768.239, K2 Rp 10.416.119, K3 Rp 6.870.764.
-- FR: 95,9% / 97,0% / 95,4%.
-- K3 lebih murah daripada K2 pada 99 dari 140 bahan (p = 6,4 × 10⁻¹⁰) dan daripada K1 pada 81 dari 140 bahan
-  (p = 0,0011).
-- K2 dibanding K1 tidak berbeda nyata (p = 0,82).
+- TC: K1 Rp 10.769.509, K2 Rp 8.705.435, K3 Rp 6.770.467.
+- FR: 96,3% / 97,6% / 95,7%.
+- K3 lebih murah daripada K2 pada 85 dari 141 bahan (p = 0,0010).
+- K3 dibanding K1 per bahan tidak berbeda nyata: K3 lebih murah pada 65 dari 141 bahan (p = 0,18), walaupun total
+  biayanya Rp 4,0 juta lebih rendah. K3 unggul pada bahan cepat rusak (39 dari 49 bahan bermasa simpan ≤ 7 hari),
+  tetapi kalah pada bahan tahan lama (hanya 6 dari 39 bahan bermasa simpan > 90 hari). Untuk bahan tahan lama, biaya
+  simpan sementara hampir nol, sehingga EOQ yang jarang memesan sudah murah. Bahan yang K3-nya kalah umumnya berbiaya
+  kecil, jadi kerugiannya Rp 0,88 juta dibanding penghematan Rp 4,88 juta.
+- K2 dibanding K1 tidak berbeda nyata (p = 0,93).
 
-**K1 aktual.** Catatan barang masuk tersedia 24 Oktober – 1 November 2026, sedangkan stok keluar baru sampai
-25 Oktober. Jadi K1 aktual pada model ini hanya mencakup 2 hari (24–25 Oktober, 53 bahan) dan ditandai belum layak disimpulkan.
-Setelah stok keluar majoo 26 Oktober – 1 November (dan catatan minggu berikutnya) diimpor, jalankan Pelatihan Ulang.
+**K1 aktual (24 Oktober – 1 November 2026, 9 hari, layak disimpulkan).** Barang masuk dari catatan WhatsApp diputar
+ulang untuk 101 bahan (42 bahan utama), dengan taksiran stok awal aktual. Pada bahan utama, TC K1 aktual Rp 3.149.868,
+K1 statis Rp 2.812.106, K2 Rp 1.712.374, dan K3 Rp 985.225. Rasio terbuang K1 aktual 41,6%, sedangkan K3 17,7%.
+K3 lebih murah daripada K1 aktual pada 34 dari 42 bahan utama (p = 1,1 × 10⁻⁶), K2 pada 32 dari 42 (p = 4,2 × 10⁻⁴),
+dan K1 statis tidak berbeda nyata dengan K1 aktual (p = 0,33).
 
-Pada kelompok semua bahan, fill rate K3 sedikit di bawah K2. Penyebabnya, untuk bahan cepat rusak yang jarang dipakai,
+Hasil K1 aktual perlu dibaca hati-hati. Nilai barang masuk 9 hari itu Rp 20,9 juta, sedangkan pemakaian menurut resep
+hanya Rp 7,9 juta. Separuh bahan menerima lebih dari 5,1 kali pemakaiannya, misalnya minyak makan 43,2 kg dibanding
+445 g, gula pasir 15 kg dibanding 588 g, dan alpukat 15 kg dibanding 1 kg. Kemungkinan penyebabnya adalah pemakaian di
+luar resep, takaran resep yang kurang tepat, dan stok untuk lebih dari 9 hari. Selain itu, sebagian besar nilai terbuang
+K1 aktual ada di ayam, daging, dan seafood yang masa simpannya masih nilai umum 3 hari, padahal kemungkinan disimpan
+beku. Jadi selisih K3 dan K2 terhadap K1 aktual adalah batas atas sampai hal ini dikonfirmasi ke cafe (bagian 6).
+
+Pada kelompok semua bahan, fill rate K3 di bawah K1 dan K2. Penyebabnya, untuk bahan cepat rusak yang jarang dipakai,
 Q-Learning memilih tidak menyetok bila perkiraan biaya terbuang lebih besar daripada biaya kehabisan. Semua angka biaya
 masih bergantung pada parameter sementara di bagian 6.
 
@@ -200,37 +223,45 @@ Daftar ini diurutkan dari yang paling berpengaruh. Semua angka di bawah berasal 
 
 1. **Stok fisik awal (stok opname).** Data majoo hanya berisi stok keluar, sehingga posisi stok tidak diketahui. Tanpa
    satu kali stok opname, aplikasi baru menghitung ROP dan belum menghitung jumlah pesan.
-2. **Stok keluar sejak 26 Oktober 2026.** Rekomendasi membutuhkan catatan 7 hari terakhir yang lengkap. Data ini
-   juga dibutuhkan K1 aktual: catatan barang masuk sudah ada sampai 1 November, tetapi baru beririsan 2 hari dengan
-   stok keluar.
-3. **Konfirmasi catatan barang masuk.** Unduh Excel di Catatan Barang Masuk, lalu cek lembar *Perlu Dicek* dengan staf
+2. **Stok keluar sejak 3 November 2026 dan laporan barang masuk setiap hari.** Data majoo sampai 2 November sudah
+   dimasukkan. Mulai 3 November, isi stok keluar setiap hari di menu Stok Keluar Harian, karena rekomendasi membutuhkan
+   catatan 7 hari terakhir yang lengkap. Laporan barang masuk WhatsApp juga perlu ditempel setiap hari agar periode
+   K1 aktual bertambah. Laporan barang masuk 2 November belum ada.
+3. **Pemakaian di luar resep.** Barang masuk 24 Oktober – 1 November bernilai 2,7 kali pemakaian menurut resep
+   (bagian 5). Tanyakan ke cafe apakah ada pemakaian yang tidak tercatat di majoo, misalnya minyak goreng, gula untuk
+   sirup, atau bahan dapur yang dipakai memasak untuk karyawan. Cek juga takaran resep yang mencurigakan, misalnya
+   alpukat (15 kg masuk, 1 kg terpakai menurut resep). Bila pemakaian sebenarnya lebih besar, prediksi dan rekomendasi
+   untuk bahan itu ikut terlalu kecil.
+4. **Konfirmasi catatan barang masuk.** Unduh Excel di Catatan Barang Masuk, lalu cek lembar *Perlu Dicek* dengan staf
    cafe: isi kemasan yang masih ditebak (misalnya 1 bungkus kerupuk, 1 sisir pisang, 1 buah paprika), nama yang
    dicocokkan dengan asumsi (madu bar depan/belakang, ayam dada, ubi roti), dan barang yang belum terdaftar di data
    bahan (gabin, donat, cabe giling, terasi, lemon, beans Ciwidey, sawi manis bar belakang, rosemary).
-4. **Biaya pesan (c_o) dan biaya simpan (c_h).** Nilai Rp 2.000 per pesanan per bahan dan 0,1% harga per hari masih
+5. **Biaya pesan (c_o) dan biaya simpan (c_h).** Nilai Rp 2.000 per pesanan per bahan dan 0,1% harga per hari masih
    sementara. Karena c_h kecil, Q-Learning (dan EOQ pada K1) cenderung memesan banyak sekaligus untuk bahan yang cukup
-   tahan lama. Contohnya Kentang: 10 kg, sementara aturan K2 menyarankan 2 kg. Isi di menu **Pengaturan** atau di sheet
-   *Biaya Umum* pada template.
-5. **Ukuran kemasan beli.** Hanya 27 bahan yang punya konversi satuan di majoo dan 4 bahan memakai ukuran umum. Ada
+   tahan lama. Contohnya Kentang pada simulasi 28 hari: satu pesanan K1 rata-rata 11 kg dan K3 sekitar 6 kg, sedangkan
+   K2 sekitar 1,8 kg. Isi di menu **Pengaturan** atau di sheet *Biaya Umum* pada template.
+6. **Ukuran kemasan beli.** Hanya 27 bahan yang punya konversi satuan di majoo dan 4 bahan memakai ukuran umum. Ada
    160 bahan yang masih memakai ukuran sementara hasil hitungan dari pemakaian. Ukuran kemasan menentukan kelipatan
    pesan (Persamaan 28).
-6. **Harga beli per satuan dasar.** 96 bahan diperkirakan dari HPP resep majoo dan 95 bahan memakai nilai umum
+7. **Harga beli per satuan dasar.** 96 bahan diperkirakan dari HPP resep majoo dan 95 bahan memakai nilai umum
    kelompok. Harga memengaruhi biaya simpan dan biaya terbuang.
-7. **Masa simpan per bahan.** Semua bahan masih memakai nilai umum kelompok, misalnya 180 hari (46 bahan), 3 hari
-   (35 bahan), 30 hari (32 bahan), dan 5 hari (30 bahan).
-8. **Biaya kehabisan (c_s).** 168 bahan dihitung dari margin menu dan 23 bahan memakai 2 × harga. Bumbu yang dipakai
+8. **Masa simpan per bahan.** Semua bahan masih memakai nilai umum kelompok, misalnya 180 hari (46 bahan), 3 hari
+   (35 bahan), 30 hari (32 bahan), dan 5 hari (30 bahan). Yang paling berpengaruh adalah ayam, daging, dan seafood
+   yang kini bernilai 3 hari. Bila bahan ini disimpan beku, isi masa simpan sebenarnya, karena sebagian besar nilai
+   terbuang K1 aktual berasal dari bahan-bahan ini.
+9. **Biaya kehabisan (c_s).** 168 bahan dihitung dari margin menu dan 23 bahan memakai 2 × harga. Bumbu yang dipakai
    sangat sedikit per porsi menghasilkan nilai ekstrem. Totole, Sasa, Merica, dan Garam bernilai sekitar
    Rp 163.000–179.000 per gram, atau 5.400–6.000 kali harganya. Untuk bahan seperti ini, biaya beli darurat di warung
    terdekat lebih masuk akal.
-9. **Kapasitas simpan maksimum** (dalam kemasan) belum diisi untuk satu bahan pun, jadi masih dihitung otomatis.
-10. **Waktu tunggu pemasok (lead time)** diasumsikan 1 hari untuk semua bahan. Catatan WhatsApp 24–31 Oktober
+10. **Kapasitas simpan maksimum** (dalam kemasan) belum diisi untuk satu bahan pun, jadi masih dihitung otomatis.
+11. **Waktu tunggu pemasok (lead time)** diasumsikan 1 hari untuk semua bahan. Catatan WhatsApp 24–31 Oktober
     mendukung asumsi ini: dari 232 baris order yang mencantumkan jumlah, 216 (93%) datang keesokan harinya dan 204
     (88%) datang tepat sesuai jumlah order (lembar *Order vs Masuk*). Kolom Lead Time sudah dipakai untuk ROP, stok
     target, dan perkiraan tanggal barang tiba. Namun Q-Learning dan simulasi masih dilatih dengan L = 1 hari sesuai
     proposal.
-11. **46 bahan dimonitor belum punya riwayat pemakaian** yang cukup, sehingga belum punya prediksi dan Q-table. Jalankan
+12. **45 bahan dimonitor belum punya riwayat pemakaian** yang cukup, sehingga belum punya prediksi dan Q-table. Jalankan
     Pelatihan Ulang setelah datanya terkumpul, atau ubah Monitor menjadi T bila bahan tersebut tidak perlu dipantau.
-12. **Satuan Jasmine Tea** tercatat "Kantung" dengan pemakaian sekitar 635 per hari. Kemungkinan satuan sebenarnya gram.
+13. **Satuan Jasmine Tea** tercatat "Kantung" dengan pemakaian sekitar 635 per hari. Kemungkinan satuan sebenarnya gram.
 
 **Cara melengkapi:**
 
@@ -241,7 +272,7 @@ Daftar ini diurutkan dari yang paling berpengaruh. Semua angka di bawah berasal 
 4. Jalankan **Analisis Model → Pelatihan Ulang (lengkap)** agar Q-table dan simulasi memakai data baru.
 
 Sheet *Ekspor Daftar Bahan Baku* mengikuti format ekspor majoo, dan kolom Stok Minimum di sana sudah berisi ROP
-dinamis per 25 Oktober 2026. Bila majoo menerima impor dengan format yang sama, kolom ini bisa dipakai untuk memperbarui
+dinamis per 2 November 2026. Bila majoo menerima impor dengan format yang sama, kolom ini bisa dipakai untuk memperbarui
 stok minimum di majoo (belum dicoba).
 
 ---
@@ -281,18 +312,20 @@ aplikasi/
 │  ├─ layanan/     buku stok FIFO, rekomendasi harian, impor/ekspor Excel, pelatihan, catatan_manual (WhatsApp)
 │  ├─ templates/   tampilan HTML
 │  ├─ static/      CSS, JS, Chart.js (tersimpan lokal, tanpa CDN)
-│  ├─ seed.py      pengisian awal dari data_awal dan artefak
+│  ├─ seed.py      pengisian awal (dan pembaruan versi) dari data_awal dan artefak
 │  └─ demo.py      riwayat simulasi untuk mode demo
 ├─ ml/             xgb.py, kebijakan.py, lingkungan.py, qlearning.py, simulasi.py, master.py, pipeline.py
-├─ data_awal/      tiga file Excel asli dari majoo; catatan_manual/ berisi laporan WhatsApp order dan barang masuk
-├─ alat/           rapikan_catatan.py: catatan WhatsApp -> Excel terstruktur dari baris perintah
+├─ data_awal/      file Excel dari majoo (bahan, resep, stok keluar harian); penjualan/ berisi ekspor transaksi
+│                  sumber stok keluar; catatan_manual/ berisi laporan WhatsApp order dan barang masuk
+├─ alat/           bangun_stok_keluar.py: transaksi penjualan x resep -> stok keluar harian per bahan;
+│                  rapikan_catatan.py: catatan WhatsApp -> Excel terstruktur
 ├─ artefak/        model hasil pelatihan awal (XGBoost, Q-table, evaluasi)
 ├─ laporan/        laporan Excel untuk Bab 4
 └─ tests/          uji otomatis
 ```
 
 **Pelatihan ulang.** Buka Analisis Model → Pelatihan Ulang. Mode *lengkap* (grid search XGBoost, tuning α/γ, 5 seed)
-memakan sekitar 12 menit di komputer pengujian. Mode *cepat* memakai hiperparameter model aktif. Model baru langsung
+memakan sekitar 11 menit di komputer pengujian. Mode *cepat* memakai hiperparameter model aktif. Model baru langsung
 aktif, dan model lama bisa diaktifkan kembali dari riwayat. Dari baris perintah, jalankan
 `.venv\Scripts\python -m ml.pipeline --tuning`. Perintah ini menulis ulang folder `artefak` dan `laporan`.
 
@@ -301,11 +334,12 @@ aktif, dan model lama bisa diaktifkan kembali dari riwayat. Dari baris perintah,
 Caranya: pasang `pymysql`, lalu atur variabel lingkungan
 `DATABASE_URL=mysql+pymysql://user:sandi@localhost/predistok?charset=utf8mb4` sebelum menjalankan.
 
-**Pengujian.** `.venv\Scripts\python -m pytest` menjalankan 29 uji. Cakupannya: rumus Persamaan 1–3, 17, 21, dan
+**Pengujian.** `.venv\Scripts\python -m pytest` menjalankan 30 uji. Cakupannya: rumus Persamaan 1–3, 17, 21, dan
 25–28, lingkungan FIFO, batas kapasitas, jadwal ε, K1 aktual (pemutaran ulang barang masuk, taksiran stok awal,
 rentang hari berlaporan), perapian catatan WhatsApp (jumlah, satuan, pecahan, pencocokan bahan), alur harian lewat
 HTTP (opname, rekomendasi, pesan, terima, hari belum tercatat, kafe tutup), alur Catatan Barang Masuk (tempel, unduh,
-koreksi, impor, hapus), CSRF, hak akses, serta impor/ekspor Excel.
+koreksi, impor, hapus), pembaruan basis data dari versi sebelumnya (data bawaan baru ditambahkan tanpa mengubah data
+lama), CSRF, hak akses, serta impor/ekspor Excel.
 
 **Keamanan.** Secara bawaan server hanya bisa dibuka dari komputer itu sendiri (127.0.0.1). Setiap halaman wajib login
 dan setiap formulir memakai token CSRF. Kunci sesi dibuat acak saat pertama dijalankan dan disimpan di `.kunci_sesi`.

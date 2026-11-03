@@ -1,27 +1,43 @@
 """Isi awal basis data dari folder data_awal dan artefak pelatihan awal.
 
-Dijalankan otomatis oleh run.py bila basis data masih kosong:
+Dijalankan otomatis oleh run.py setiap kali aplikasi dimulai. Bila basis data masih kosong, diisi:
   - pengguna admin (kata sandi wajib diganti),
   - data master bahan baku (ekspor majoo + estimasi harga/kemasan/masa simpan, ditandai sebagai asumsi),
-  - stok keluar harian Juli-Oktober 2026 (file Stok_Keluar_Harian_Bahan_Baku.xlsx),
+  - stok keluar harian sejak Juli 2026 (file Stok_Keluar_Harian_Bahan_Baku.xlsx),
   - catatan manual order dan barang masuk cafe (data_awal/catatan_manual/*.txt) untuk K1 aktual,
   - model hasil pelatihan awal (artefak/ dan laporan/) sebagai model aktif.
+
+Bila basis data berasal dari versi sebelumnya, data bawaan yang lebih baru ditambahkan tanpa mengubah data yang
+sudah ada (lengkapi_dari_data_awal): hari stok keluar yang belum tercatat, hari catatan yang belum ada, dan model
+bawaan bila datanya lebih baru daripada semua model yang ada. Nilai bahan yang masih berupa perkiraan dari data
+(isi kemasan, harga, biaya kehabisan yang belum dikonfirmasi) dihitung ulang seperti pada instalasi baru.
 """
+import hashlib
 import json
 import shutil
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
-from sqlalchemy import insert, inspect, text
+from sqlalchemy import func, insert, inspect, text
 
 import config as C
 from app.auth import hash_sandi
 from app.db import Base, SesiLokal, engine
 from app.layanan import model_aktif as MA
+from app.layanan import pengaturan as PG
 from app.models import Bahan, CatatanBarang, ModelRun, PencatatanHarian, Pengguna, SatuanBahan, StokKeluar
 
 BERKAS_MODEL = ["xgb_model.json", "xgb_meta.json", "qtable.npz", "qtable_meta.json", "evaluasi.json"]
 BERKAS_LAPORAN = ["evaluasi_xgboost.xlsx", "simulasi_K1_K2_K3.xlsx"]
+# Pengaturan internal: sidik berkas data_awal yang sudah dimasukkan, agar pemeriksaan saat mulai cukup sekali.
+KUNCI_DATA_AWAL = "data_awal_terpakai"
+# Tanda asumsi pada bahan -> kolom yang dihitung dari data bawaan (ml.master.susun_master)
+NILAI_SEMENTARA = {
+    "kemasan": ("kemasan_nama", "kemasan_isi", "sumber_kemasan"),
+    "harga": ("harga_satuan", "sumber_harga"),
+    "biaya_kehabisan": ("biaya_kehabisan", "sumber_biaya_kehabisan"),
+}
 
 
 def buat_tabel():
@@ -74,48 +90,89 @@ def isi_bahan(db, log=print):
                                              konversi=float(u.get("konv") or 1.0), dasar=False))
         db.add(b)
     db.commit()
+    _catat_penanda(db, master=_sidik(*_berkas_master()))
     log(f"Data master: {db.query(Bahan).count()} bahan baku")
+
+
+def _berkas_master() -> list:
+    return [f for f in (C.FILE_EKSPOR_BAHAN, C.FILE_RESEP, C.FILE_STOK_KELUAR) if f.exists()]
+
+
+def _sidik(*berkas) -> str:
+    h = hashlib.sha1()
+    for f in berkas:
+        h.update(Path(f).name.encode("utf-8"))
+        h.update(Path(f).read_bytes())
+    return h.hexdigest()
+
+
+def _penanda(db) -> dict:
+    v = PG.semua(db).get(KUNCI_DATA_AWAL)
+    return v if isinstance(v, dict) else {}
+
+
+def _catat_penanda(db, **isi):
+    p = _penanda(db)
+    p.update(isi)
+    PG.simpan(db, {KUNCI_DATA_AWAL: p})
+
+
+def _stok_keluar_awal() -> pd.DataFrame:
+    long = pd.read_excel(C.FILE_STOK_KELUAR, sheet_name="Stok Keluar (Long)", engine="openpyxl")
+    long["Tanggal"] = pd.to_datetime(long["Tanggal"]).dt.date
+    return long.groupby(["Tanggal", "SKU Bahan"])["Jumlah Keluar"].sum().reset_index()
+
+
+def _tambah_hari_stok_keluar(db, g: pd.DataFrame, hari: list, sumber: str) -> int:
+    ids = {b.sku: b.id for b in db.query(Bahan).all()}
+    pilih = set(hari)
+    rows = [{"bahan_id": ids[s], "tanggal": t, "jumlah": float(q)} for t, s, q in g.itertuples(index=False)
+            if s in ids and t in pilih]
+    if rows:
+        db.execute(insert(StokKeluar), rows)
+    for t in sorted(pilih):
+        db.add(PencatatanHarian(tanggal=t, status="tercatat", sumber=sumber))
+    db.commit()
+    return len(rows)
 
 
 def isi_stok_keluar(db, log=print):
     if db.query(StokKeluar).count():
         return
-    long = pd.read_excel(C.FILE_STOK_KELUAR, sheet_name="Stok Keluar (Long)", engine="openpyxl")
-    long["Tanggal"] = pd.to_datetime(long["Tanggal"]).dt.date
-    ids = {b.sku: b.id for b in db.query(Bahan).all()}
-    g = long.groupby(["Tanggal", "SKU Bahan"])["Jumlah Keluar"].sum().reset_index()
-    rows = [{"bahan_id": ids[s], "tanggal": t, "jumlah": float(q)} for t, s, q in g.itertuples(index=False)
-            if s in ids]
-    db.execute(insert(StokKeluar), rows)
-    for t in sorted(g["Tanggal"].unique()):
-        db.add(PencatatanHarian(tanggal=t, status="tercatat", sumber="impor awal"))
-    db.commit()
-    log(f"Stok keluar: {len(rows)} baris, {g['Tanggal'].nunique()} hari ({g['Tanggal'].min()} s.d. {g['Tanggal'].max()})")
+    g = _stok_keluar_awal()
+    n = _tambah_hari_stok_keluar(db, g, sorted(g["Tanggal"].unique()), "impor awal")
+    _catat_penanda(db, stok_keluar=_sidik(C.FILE_STOK_KELUAR))
+    log(f"Stok keluar: {n} baris, {g['Tanggal'].nunique()} hari ({g['Tanggal'].min()} s.d. {g['Tanggal'].max()})")
+
+
+def _berkas_catatan() -> list:
+    return sorted(C.FOLDER_CATATAN.glob("*.txt")) if C.FOLDER_CATATAN.exists() else []
 
 
 def isi_catatan_manual(db, log=print):
-    """Catatan WhatsApp order dan barang masuk di data_awal/catatan_manual, dirapikan lalu disimpan (sekali saja:
-    setelah tabel berisi, catatan baru diimpor dari menu Catatan Barang Masuk)."""
+    """Catatan WhatsApp order dan barang masuk di data_awal/catatan_manual, dirapikan lalu disimpan. Setelah tabel
+    berisi, catatan baru diimpor dari menu Catatan Barang Masuk (atau ditambahkan oleh lengkapi_catatan)."""
     if db.query(CatatanBarang).count() or not db.query(Bahan).count():
         return
     from app.layanan import catatan_manual as CM
-    files = sorted(C.FOLDER_CATATAN.glob("*.txt"))
+    files = _berkas_catatan()
     if not files:
         return
     df, _ = CM.dari_folder(C.FOLDER_CATATAN, CM.Master.dari_db(db))
     h = CM.simpan_ke_db(db, df, sumber=", ".join(f.name for f in files), oleh="sistem")
+    _catat_penanda(db, catatan=_sidik(*files))
     if h["hari_masuk"]:
         log(f"Catatan barang masuk: {h['masuk']} baris ({h['hari_masuk'][0]} s.d. {h['hari_masuk'][-1]}), "
             f"{h['order']} baris order")
 
 
-def isi_model_awal(db, log=print):
-    if db.query(ModelRun).count():
-        return
-    if not all((C.ARTEFAK / f).exists() for f in BERKAS_MODEL):
-        log("Artefak pelatihan awal belum ada; jalankan pelatihan dari menu Pelatihan Ulang.")
-        return
-    run = ModelRun(status="selesai", jenis="lengkap", aktif=True, dibuat_oleh="sistem", mulai=datetime.now())
+def _artefak_lengkap() -> bool:
+    return all((C.ARTEFAK / f).exists() for f in BERKAS_MODEL)
+
+
+def _daftarkan_artefak(db, keterangan: str, aktif: bool) -> ModelRun:
+    """Salin artefak/ (dan laporan/) ke folder model baru, lalu daftarkan sebagai run selesai."""
+    run = ModelRun(status="selesai", jenis="lengkap", aktif=aktif, dibuat_oleh="sistem", mulai=datetime.now())
     db.add(run)
     db.flush()
     tujuan = C.FOLDER_MODEL / f"run_{run.id}"
@@ -132,9 +189,134 @@ def isi_model_awal(db, log=print):
     run.mulai = datetime.fromisoformat(meta["dibuat"])
     run.selesai = run.mulai
     run.ringkasan = ringkasan_run(ev)
-    run.log = "Model hasil pelatihan awal (python -m ml.pipeline --tuning)."
+    run.log = keterangan
     MA.daftarkan_run(db, run, tujuan)
+    return run
+
+
+def isi_model_awal(db, log=print):
+    if db.query(ModelRun).count():
+        return
+    if not _artefak_lengkap():
+        log("Artefak pelatihan awal belum ada; jalankan pelatihan dari menu Pelatihan Ulang.")
+        return
+    run = _daftarkan_artefak(db, "Model hasil pelatihan awal (python -m ml.pipeline --tuning).", aktif=True)
     log(f"Model awal terdaftar (data s.d. {run.data_sampai})")
+
+
+# ------------------------------------------------------------- basis data dari versi aplikasi sebelumnya
+def lengkapi_nilai_sementara(db, log=print):
+    """Hitung ulang nilai bahan yang masih berupa perkiraan dari data (isi kemasan, harga, dan biaya kehabisan yang
+    belum dikonfirmasi), sama seperti pada instalasi baru. Nilai yang sudah diisi atau dikonfirmasi tidak diubah."""
+    berkas = _berkas_master()
+    if not db.query(Bahan).count() or len(berkas) < 3:
+        return
+    sidik = _sidik(*berkas)
+    if _penanda(db).get("master") == sidik:
+        return
+    from ml.master import susun_master
+    baru = {r["sku"]: r for r in susun_master(log=lambda *_: None).to_dict(orient="records")}
+    n = 0
+    for b in db.query(Bahan).all():
+        r = baru.get(b.sku)
+        if r is None:
+            continue
+        tanda = set(b.daftar_asumsi)
+        tanda_baru = {a for a in (r["asumsi"] or "").split(",") if a}
+        ubah = False
+        for t, kolom in NILAI_SEMENTARA.items():
+            if t not in tanda:
+                continue
+            for k in kolom:
+                v = float(r[k]) if k in ("kemasan_isi", "harga_satuan", "biaya_kehabisan") else r[k]
+                if getattr(b, k) != v:
+                    setattr(b, k, v)
+                    ubah = True
+            if t not in tanda_baru:            # nilai baru bukan perkiraan lagi (mis. ada konversi di majoo)
+                tanda.discard(t)
+                ubah = True
+        if ubah:
+            b.asumsi = ",".join(a for a in b.daftar_asumsi if a in tanda)
+            n += 1
+    db.commit()
+    if n:
+        log(f"Nilai sementara bahan dihitung ulang dari data bawaan yang lebih baru: {n} bahan. Nilai yang sudah "
+            f"dikonfirmasi tidak diubah.")
+    _catat_penanda(db, master=sidik)
+
+
+def lengkapi_stok_keluar(db, log=print):
+    """Tambahkan hari di file stok keluar bawaan yang belum tercatat. Hari yang sudah tercatat (termasuk yang
+    ditandai tutup atau diisi manual) tidak diubah."""
+    if not db.query(StokKeluar).count() or not C.FILE_STOK_KELUAR.exists():
+        return
+    sidik = _sidik(C.FILE_STOK_KELUAR)
+    if _penanda(db).get("stok_keluar") == sidik:
+        return
+    g = _stok_keluar_awal()
+    sudah = {t for (t,) in db.query(PencatatanHarian.tanggal).all()}
+    hari = sorted(set(g["Tanggal"]) - sudah)
+    if hari:
+        n = _tambah_hari_stok_keluar(db, g, hari, "data_awal versi baru")
+        log(f"Stok keluar dari data bawaan yang lebih baru: {len(hari)} hari ditambahkan ({hari[0]} s.d. "
+            f"{hari[-1]}, {n} baris). Hari yang sudah tercatat tidak diubah.")
+    _catat_penanda(db, stok_keluar=sidik)
+
+
+def lengkapi_catatan(db, log=print):
+    """Tambahkan catatan order/barang masuk bawaan untuk (jenis, tanggal) yang belum ada di basis data. Hari yang
+    sudah ada (termasuk yang dikoreksi lewat menu Catatan Barang Masuk) tidak diubah."""
+    files = _berkas_catatan()
+    if not files or not db.query(CatatanBarang).count():
+        return
+    sidik = _sidik(*files)
+    if _penanda(db).get("catatan") == sidik:
+        return
+    from app.layanan import catatan_manual as CM
+    df, _ = CM.dari_folder(C.FOLDER_CATATAN, CM.Master.dari_db(db))
+    ada = {(j, t) for j, t in db.query(CatatanBarang.jenis, CatatanBarang.tanggal).distinct()}
+    if not df.empty:
+        kunci = zip(df["jenis"], pd.to_datetime(df["tanggal"]).dt.date)
+        baru = df[[k not in ada for k in kunci]]
+        if not baru.empty:
+            h = CM.simpan_ke_db(db, baru, sumber=", ".join(f.name for f in files), oleh="sistem")
+            hari = sorted({pd.Timestamp(t).date() for t in baru["tanggal"]})
+            log(f"Catatan bawaan yang lebih baru: {h['masuk']} baris barang masuk dan {h['order']} baris order "
+                f"ditambahkan ({hari[0]} s.d. {hari[-1]}).")
+    _catat_penanda(db, catatan=sidik)
+
+
+def lengkapi_model(db, log=print):
+    """Daftarkan model bawaan (artefak/) sebagai model aktif bila datanya lebih baru daripada semua model yang ada.
+    Model sebelumnya tetap ada di riwayat dan bisa diaktifkan kembali dari menu Pelatihan Ulang."""
+    if not db.query(ModelRun).count() or not _artefak_lengkap():
+        return
+    meta = json.loads((C.ARTEFAK / "xgb_meta.json").read_text(encoding="utf-8"))
+    sampai = pd.Timestamp(meta["data_sampai"]).date()
+    terakhir = db.query(func.max(ModelRun.data_sampai)).filter(ModelRun.status == "selesai").scalar()
+    if terakhir is not None and sampai <= terakhir:
+        return
+    run = _daftarkan_artefak(db, "Model bawaan versi baru (artefak/), didaftarkan otomatis saat aplikasi "
+                                 "diperbarui.", aktif=False)
+    db.query(ModelRun).filter(ModelRun.id != run.id).update({ModelRun.aktif: False})
+    run.aktif = True
+    db.commit()
+    MA.lupakan()
+    log(f"Model bawaan yang lebih baru (data s.d. {sampai}) didaftarkan dan diaktifkan. Model sebelumnya tetap "
+        f"ada di riwayat Pelatihan Ulang.")
+
+
+def lengkapi_dari_data_awal(db, log=print):
+    """Basis data dari versi sebelumnya: tambahkan data bawaan yang lebih baru tanpa mengubah data yang ada."""
+    if C.DEMO:
+        # riwayat demo disusun dari data saat basis data demo dibuat; jangan ditambal
+        if C.FILE_STOK_KELUAR.exists() and _penanda(db).get("stok_keluar") != _sidik(C.FILE_STOK_KELUAR):
+            log("Data bawaan di data_awal lebih baru daripada data demo ini. Jalankan jalankan_demo.bat --ulang-demo "
+                "untuk membuat ulang data demo.")
+        return
+    lengkapi_stok_keluar(db, log)
+    lengkapi_catatan(db, log)
+    lengkapi_model(db, log)
 
 
 def ringkasan_run(ev: dict) -> dict:
@@ -152,9 +334,12 @@ def jalankan(log=print):
     try:
         isi_pengguna(db, log)
         isi_bahan(db, log)
+        if not C.DEMO:
+            lengkapi_nilai_sementara(db, log)    # sebelum catatan dirapikan, karena isi kemasan dipakai konversi
         isi_stok_keluar(db, log)
         isi_catatan_manual(db, log)
         isi_model_awal(db, log)
+        lengkapi_dari_data_awal(db, log)
     finally:
         db.close()
 

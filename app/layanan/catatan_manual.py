@@ -364,11 +364,15 @@ def koreksi_tanggal_order(laporan: list[Laporan]) -> list[Laporan]:
     return laporan
 
 
+_KARYAWAN = re.compile(r"kar[iy]?a?w")     # karyawan, karywan, karyawam, mkn karyawan, ...
+
+
 def _bagian(baris: str) -> str | None:
     s = baris.lower()
-    if not s.strip().startswith("*") and "lafabrica" not in s and "karyaw" not in s:
+    karyawan = bool(_KARYAWAN.search(s)) and len(re.findall(r"[a-z]+", s)) <= 4
+    if not s.strip().startswith("*") and "lafabrica" not in s and not karyawan:
         return None
-    if "karyaw" in s:
+    if karyawan:
         return BAGIAN["makan karyawan"]
     if "bar (depan)" in s or "bar depan" in s:
         return BAGIAN["bar depan"]
