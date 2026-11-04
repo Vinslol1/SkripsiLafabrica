@@ -1,4 +1,5 @@
 """Analisis Model: Prediksi Kebutuhan, Evaluasi Prediksi, Simulasi Kebijakan K1/K2/K3, Pelatihan Ulang."""
+import math
 from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -15,7 +16,9 @@ from app.layanan import model_aktif as MA
 from app.layanan import pelatihan as PL
 from app.layanan import stok as ST
 from app.models import Bahan, ModelRun
-from app.web import bersih, flash, ke, render
+from app.web import angka, angka_pas, bersih, flash, ke, render
+from ml import rincian as RC
+from ml import simulasi as SIM
 
 router = APIRouter(dependencies=[Depends(pengguna_aktif)])
 
@@ -102,6 +105,92 @@ def simulasi(request: Request, kelompok: str = "utama", db: Session = Depends(ge
         per = [r for r in ev["per_bahan"] if kelompok == "semua" or r.get("utama")]
         per.sort(key=lambda r: -(r.get("K1_TC") or 0))
     return render(request, "simulasi.html", menu="simulasi", ev=ev, per=per, kelompok=kelompok, model=model)
+
+
+@lru_cache(maxsize=4)
+def _muat_rincian(folder: str, mtime: float):
+    return RC.muat(folder)
+
+
+def _rincian(model):
+    f = Path(model.folder) / RC.BERKAS
+    if not f.exists():
+        return None
+    return _muat_rincian(str(model.folder), f.stat().st_mtime)
+
+
+def _pilih_awal(nilai: float, pilihan: list, bawaan: float) -> float:
+    for a in pilihan:
+        if abs(a - nilai) < 1e-6:
+            return a
+    return bawaan if bawaan in pilihan else (pilihan[0] if pilihan else bawaan)
+
+
+def _bagian_rincian(bag: dict, sku: str, varian: tuple, awal: float, seed: int, tampil: str, bawaan_awal: float):
+    """Catatan harian satu run per kebijakan, totalnya, dan data grafik sisa stok untuk satu bahan."""
+    b = bag["skus"].index(sku)
+    pil = RC.pilihan_run(bag, varian[0])
+    awal = _pilih_awal(awal, pil["awal"], bawaan_awal)
+    seeds = RC.pilihan_run(bag, "K3")["seed"]
+    seed = seed if seed in seeds else (seeds[0] if seeds else 0)
+    hari = {v: RC.harian_run(bag, v, b, awal, seed) for v in varian}
+    hari = {v: df for v, df in hari.items() if df is not None}
+    tampil = tampil if tampil in hari else next(iter(hari), None)
+    d_bar = float(bag["par"]["d_bar"][b])
+    label_awal = []
+    for a in pil["awal"]:
+        if a == SIM.STOK_AWAL_TAKSIRAN:
+            label_awal.append((a, f"Taksiran stok awal aktual ({angka_pas(float(bag['stok_taksiran'][b]))})"))
+        else:
+            label_awal.append((a, f"{angka(a, 1)} × rata-rata pemakaian ({angka_pas(a * d_bar)})"))
+    return {
+        "awal": awal, "seed": seed, "seeds": seeds, "label_awal": label_awal, "tampil": tampil,
+        "ringkas": {v: RC.ringkas_run(df) for v, df in hari.items()},
+        "tabel": bersih(hari[tampil].to_dict(orient="records")) if tampil else [],
+        "grafik": {"label": [str(t) for t in bag["tanggal"]], "pemakaian": [float(x) for x in bag["d"][b]],
+                   **{v: [round(float(x), 2) for x in df["sisa_akhir"]] for v, df in hari.items()}},
+        "par": {k: float(v[b]) for k, v in bag["par"].items()},
+    }
+
+
+def _bilangan(teks: str, bawaan: float) -> float:
+    try:
+        v = float(str(teks).replace(",", "."))
+    except ValueError:
+        return bawaan
+    return v if math.isfinite(v) else bawaan
+
+
+@router.get("/simulasi/bahan/{sku}")
+def simulasi_bahan(request: Request, sku: str, awal: str = "", seed: str = "", tampil: str = "K3",
+                   awal_aktual: str = "", tampil_aktual: str = "K1A", db: Session = Depends(get_db)):
+    """Rincian simulasi satu bahan: asal setiap komponen biaya, neraca barang, dan sisa stok setiap hari.
+    awal = tingkat stok awal run yang ditampilkan (kelipatan rata-rata pemakaian; -1 = taksiran stok awal aktual),
+    seed = seed K3 (mulai 1), tampil = kebijakan pada tabel catatan harian."""
+    awal = _bilangan(awal, RC.AWAL_CONTOH)
+    awal_aktual = _bilangan(awal_aktual, SIM.STOK_AWAL_TAKSIRAN)
+    seed = int(_bilangan(seed, 1))
+    model = MA.ambil(db)
+    ev = model.evaluasi() if model else None
+    if not ev:
+        return ke("/simulasi")
+    baris = next((r for r in ev["per_bahan"] if r["sku"] == sku), None)
+    if baris is None:
+        flash(request, "Bahan ini tidak ikut simulasi model aktif.", "galat")
+        return ke("/simulasi")
+    ak = ev.get("aktual") or {}
+    baris_a = next((r for r in ak.get("per_bahan", []) if r["sku"] == sku), None)
+    R = _rincian(model)
+    uji = aktual = None
+    if R is not None and sku in R["uji"]["skus"]:
+        uji = _bagian_rincian(R["uji"], sku, RC.VARIAN_UJI, awal, seed - 1, tampil, RC.AWAL_CONTOH)
+        if R["aktual"] and sku in R["aktual"]["skus"]:
+            aktual = _bagian_rincian(R["aktual"], sku, RC.VARIAN_AKTUAL, awal_aktual, seed - 1, tampil_aktual,
+                                     SIM.STOK_AWAL_TAKSIRAN)
+    bahan = db.query(Bahan).filter(Bahan.sku == sku).first()
+    return render(request, "simulasi_bahan.html", menu="simulasi", ev=ev, model=model, sku=sku, baris=baris,
+                  baris_a=baris_a, bahan=bahan, uji=uji, aktual=aktual, nama_varian=RC.NAMA_VARIAN,
+                  ada_rincian=R is not None)
 
 
 @router.get("/laporan/{run_id}/{nama}")

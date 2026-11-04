@@ -191,3 +191,34 @@ def test_evaluasi_aktual_memilih_bahan_dan_skenario_stok_awal():
     assert sorted(runs["stok_awal"].unique()) == [SIM.STOK_AWAL_TAKSIRAN, 0.0, 0.5, 1.0, 2.0, 3.0]
     k1a = runs[(runs["varian"] == "K1A") & (runs["stok_awal"] == SIM.STOK_AWAL_TAKSIRAN)].iloc[0]
     assert k1a["total_kurang"] == 0 and k1a["total_diterima"] == 6
+
+
+def test_rincian_harian_sama_dengan_total_run_dan_neraca_seimbang():
+    """Catatan harian setiap run (barang datang, terbuang, kekurangan, sisa stok akhir hari) menghasilkan kembali
+    setiap komponen biaya run itu, dan neraca barang seimbang setiap hari maupun seluruh periode."""
+    import pandas as pd
+
+    from ml import rincian as RC
+    n, T = 2, 12
+    d = np.random.default_rng(3).integers(0, 15, size=(n, T)).astype(float)
+    par = {**_par_k1a(n), "k": np.array([5.0, 1.0]), "tau": np.array([3.0, 10.0]), "rop1": np.array([12.0, 4.0]),
+           "q1": np.array([20.0, 6.0]), "c_h": np.array([0.2, 0.05])}
+    harian = {}
+    runs = SIM.evaluasi(par, d, d, d, np.ones(n), varian=("K1", "K2"), d_bar=d.mean(1), harian=harian)
+    assert set(harian) == {"K1", "K2"} and harian["K1"]["I"].shape == (n * len(SIM.C.SIM_STOK_AWAL), T)
+    bag = {"skus": ["A", "B"], "tanggal": [str(x.date()) for x in pd.date_range("2026-10-06", periods=T)], "d": d,
+           "par": {p: np.asarray(par[p], float) for p in ("c_h", "c_s", "c_w", "c_o")}, "runs": harian}
+    for r in runs.itertuples():
+        df = RC.harian_run(bag, r.varian, r.b, r.stok_awal)
+        t = RC.ringkas_run(df)
+        assert t["biaya"] == pytest.approx(r.TC, rel=1e-5)
+        for a, b in (("b_h", "b_h"), ("b_s", "b_s"), ("b_w", "b_w"), ("b_o", "b_o"), ("sisa_akhir", "sisa_akhir"),
+                     ("datang", "total_diterima"), ("kurang", "total_kurang"), ("terbuang", "terbuang"),
+                     ("stok_harian", "stok_harian"), ("stok_awal", "jumlah_awal"), ("pesan", "jumlah_pesan")):
+            assert t[a] == pytest.approx(getattr(r, b), rel=1e-5, abs=1e-4), (r.varian, r.b, a)
+        assert np.allclose(df["stok_sebelum"] - df["terbuang"] + df["datang"] - df["terpenuhi"], df["sisa_akhir"],
+                           atol=1e-4)
+        assert r.jumlah_awal + r.total_diterima == pytest.approx(r.total_pakai - r.total_kurang + r.terbuang
+                                                                 + r.sisa_akhir)
+        assert r.nilai_awal + r.nilai_diterima == pytest.approx(r.nilai_terpakai + r.nilai_terbuang + r.nilai_sisa)
+    assert runs["terbuang"].sum() > 0 and runs["total_kurang"].sum() > 0   # contoh ini memuat kedua kejadian

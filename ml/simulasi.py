@@ -10,6 +10,10 @@ K3  Agen Q-Learning dengan state berisi prediksi XGBoost dan status ROP dinamis;
 
 Semua varian memakai data pemakaian, stok awal, dan parameter biaya yang identik. Setiap varian diulang
 dengan beberapa stok awal; K3 juga dengan beberapa seed pelatihan.
+
+Selain total per run, setiap run bisa mencatat rincian harian (barang datang, terbuang, kekurangan, sisa stok
+akhir hari) sehingga asal setiap komponen biaya dan sisa stok setiap hari bisa ditelusuri. Neraca setiap run:
+stok awal + barang datang = terpakai + terbuang + sisa stok akhir.
 """
 import math
 
@@ -23,7 +27,14 @@ from ml.qlearning import RuangState
 
 STOK_AWAL_TAKSIRAN = -1.0      # label skenario stok awal hasil taksiran (bukan kelipatan rata-rata pemakaian)
 METRIK = ["TC", "b_h", "b_s", "b_w", "b_o", "hari_stockout", "FR", "terbuang", "nilai_terbuang", "WR",
-          "jumlah_pesan", "total_diterima", "total_pakai", "total_kurang", "cadangan"]
+          "jumlah_pesan", "total_diterima", "total_pakai", "total_kurang", "cadangan",
+          "jumlah_awal", "sisa_akhir", "stok_harian", "nilai_awal", "nilai_diterima", "nilai_terpakai", "nilai_sisa"]
+# Rincian harian yang disimpan per run, masing-masing [run, hari]. Hari t: q = barang datang pagi hari t (dipesan
+# akhir hari sebelumnya), W = terbuang pagi hari t karena melewati masa simpan, S = pemakaian yang tidak
+# terpenuhi, I = sisa stok akhir hari t (setara hasil stok opname), rop = ROP yang dipakai saat memutuskan q
+# (K1 aktual tidak memakai ROP), cad = keputusan K3 memakai aturan cadangan. Stok sebelum hari t = I hari
+# sebelumnya (hari pertama: jumlah_awal).
+KOLOM_HARIAN = ("q", "W", "S", "I", "rop", "cad")
 
 
 def _ceil_k(x, k):
@@ -57,18 +68,23 @@ def jalankan(varian: str, par: dict, d: np.ndarray, yh1: np.ndarray, yh2: np.nda
     zs1 = C.Z_LAYANAN * sigma * math.sqrt(C.LEAD_TIME)
     zs2 = C.Z_LAYANAN * sigma * math.sqrt(C.LEAD_TIME + 1)
     acc = {m: np.zeros(n) for m in ["b_h", "b_s", "b_w", "b_o", "hari_stockout", "terbuang", "jumlah_pesan",
-                                    "total_diterima", "total_pakai", "total_kurang", "cadangan"]}
+                                    "total_diterima", "total_pakai", "total_kurang", "cadangan", "stok_harian"]}
+    acc["jumlah_awal"] = np.asarray(stok_awal, float).copy()
     harian = []
     for t in range(T):
         ip = env.posisi()
         rop = yh1[:, t] + zs1
         out = yh1[:, t] + yh2[:, t] + zs2
+        cadangan = np.zeros(n, bool)
         if varian == "K1":
             q = np.where(ip <= par["rop1"], par["q1"], 0.0)
+            rop_k = np.asarray(par["rop1"], float)
         elif varian == "K1A":
             q = np.asarray(par["q_aktual"], float)[:, t]
+            rop_k = np.full(n, np.nan)
         elif varian == "K2":
             q = np.where(ip <= rop, _ceil_k(out - ip, k), 0.0)
+            rop_k = rop
         elif varian == "K3":
             e = env.hampir_kedaluwarsa()
             s = ruang.indeks(ip, yh1[:, t], e, ip <= rop)
@@ -76,6 +92,7 @@ def jalankan(varian: str, par: dict, d: np.ndarray, yh1: np.ndarray, yh2: np.nda
             cadangan = a < 0
             q = np.where(cadangan, np.where(ip <= rop, _ceil_k(out - ip, k), 0.0), agen.jumlah(np.maximum(a, 0), ia))
             acc["cadangan"] += cadangan
+            rop_k = rop
         else:
             raise ValueError(varian)
         if varian != "K1A":
@@ -89,13 +106,22 @@ def jalankan(varian: str, par: dict, d: np.ndarray, yh1: np.ndarray, yh2: np.nda
         acc["total_diterima"] += q
         acc["total_pakai"] += d[:, t]
         acc["total_kurang"] += h["S"]
+        acc["stok_harian"] += h["I"]
         if catat_harian:
-            harian.append({"ip": ip, "rop": rop, "out": out, "q": q, "W": h["W"], "S": h["S"], "I": h["I"]})
+            harian.append({"ip": ip, "rop": rop, "out": out, "q": q, "W": h["W"], "S": h["S"], "I": h["I"],
+                           "rop_k": rop_k, "cad": cadangan})
     acc["TC"] = acc["b_h"] + acc["b_s"] + acc["b_w"] + acc["b_o"]
     with np.errstate(divide="ignore", invalid="ignore"):
         acc["FR"] = np.where(acc["total_pakai"] > 0, 1 - acc["total_kurang"] / acc["total_pakai"], 1.0)
         acc["WR"] = np.where(acc["total_diterima"] > 0, acc["terbuang"] / acc["total_diterima"], 0.0)
     acc["nilai_terbuang"] = acc["b_w"]
+    # neraca nilai barang (harga beli): stok awal + datang = terpakai + terbuang + sisa akhir
+    acc["sisa_akhir"] = env.posisi()
+    harga = np.asarray(par["c_w"], float)
+    acc["nilai_awal"] = harga * acc["jumlah_awal"]
+    acc["nilai_diterima"] = harga * acc["total_diterima"]
+    acc["nilai_terpakai"] = harga * (acc["total_pakai"] - acc["total_kurang"])
+    acc["nilai_sisa"] = harga * acc["sisa_akhir"]
     if catat_harian:
         acc["harian"] = harian
     return acc
@@ -114,13 +140,16 @@ def parameter_k1(d_hist: np.ndarray, par: dict) -> dict:
 def evaluasi(par: dict, d: np.ndarray, yh1: np.ndarray, yh2: np.ndarray, sigma: np.ndarray,
              agen=None, ruang_list=None, n_seed=1, kelipatan_awal=C.SIM_STOK_AWAL, d_bar=None,
              varian=("K1", "K2", "K3"), min_kunjungan=C.QL_MIN_KUNJUNGAN, indeks_agen=None,
-             n_agen=None, stok_awal_tetap=None) -> pd.DataFrame:
+             n_agen=None, stok_awal_tetap=None, harian: dict | None = None) -> pd.DataFrame:
     """Jalankan varian kebijakan untuk semua bahan x stok awal (x seed untuk K3). Hasil: satu baris per run.
 
     indeks_agen, n_agen: bila hanya sebagian bahan yang diuji (K1 aktual), indeks setiap bahan pada agen K3 dan
     jumlah bahan per seed pada agen tersebut.
     stok_awal_tetap: skenario stok awal tambahan [bahan] (mis. taksiran stok awal aktual), dicatat dengan
     stok_awal = STOK_AWAL_TAKSIRAN.
+    harian: bila diberikan (dict kosong), diisi rincian harian per varian: {varian: {kolom: [run, hari]}} untuk
+    kolom KOLOM_HARIAN, ditambah b, stok_awal, seed, dan jumlah_awal per run; urutan run sama dengan urutan
+    baris varian itu pada hasil.
     """
     n_b, T = d.shape
     d_bar = d.mean(1) if d_bar is None else d_bar
@@ -152,14 +181,23 @@ def evaluasi(par: dict, d: np.ndarray, yh1: np.ndarray, yh2: np.ndarray, sigma: 
             # agen tersusun [seed][bahan]; lingkungan tersusun [seed][stok awal][bahan]
             ia = np.array([s * n_ag + idx_ag[b] for s in range(n_seed) for _ in range(I) for b in range(n_b)])
         res = jalankan(v, p, ulang(d, reps), ulang(yh1, reps), ulang(yh2, reps), ulang(sigma, reps), s0,
-                       agen=agen if v == "K3" else None, ruang=ruang, ia=ia, min_kunjungan=min_kunjungan)
-        for j in range(n_b * reps):
-            b = j % n_b
-            i = (j // n_b) % I
-            s = j // (n_b * I)
-            r = {"varian": v, "b": b, "stok_awal": label_awal[i], "seed": s if v == "K3" else -1}
-            r.update({m: float(res[m][j]) for m in METRIK})
+                       agen=agen if v == "K3" else None, ruang=ruang, ia=ia, min_kunjungan=min_kunjungan,
+                       catat_harian=harian is not None)
+        j = np.arange(n_b * reps)
+        b_run, i_run, s_run = j % n_b, (j // n_b) % I, j // (n_b * I)
+        for jj in j:
+            r = {"varian": v, "b": int(b_run[jj]), "stok_awal": label_awal[i_run[jj]],
+                 "seed": int(s_run[jj]) if v == "K3" else -1}
+            r.update({m: float(res[m][jj]) for m in METRIK})
             rows.append(r)
+        if harian is not None:
+            hr = res["harian"]
+            x = {c: np.stack([h["rop_k" if c == "rop" else c] for h in hr], 1).astype(np.float32)
+                 for c in KOLOM_HARIAN}
+            x.update({"b": b_run.astype(np.int16), "stok_awal": np.array(label_awal, np.float32)[i_run],
+                      "seed": (s_run if v == "K3" else np.full_like(s_run, -1)).astype(np.int16),
+                      "jumlah_awal": np.asarray(s0, np.float32)})
+            harian[v] = x
     return pd.DataFrame(rows)
 
 
@@ -177,7 +215,8 @@ def ringkas_total(runs: pd.DataFrame) -> pd.DataFrame:
         TC=("TC", "sum"), b_h=("b_h", "sum"), b_s=("b_s", "sum"), b_w=("b_w", "sum"), b_o=("b_o", "sum"),
         hari_stockout=("hari_stockout", "sum"), terbuang_nilai=("nilai_terbuang", "sum"),
         FR_rata=("FR", "mean"), WR_rata=("WR", "mean"), jumlah_pesan=("jumlah_pesan", "sum"),
-        cadangan=("cadangan", "sum")).reset_index()
+        cadangan=("cadangan", "sum"), **{c: (c, "sum") for c in ("nilai_awal", "nilai_diterima", "nilai_terpakai",
+                                                                  "nilai_sisa") if c in runs}).reset_index()
     out = per_run.groupby("varian").agg(["mean", "std"])
     out = out.drop(columns=[c for c in out.columns if c[0] in ("stok_awal", "seed")])
     out.columns = [f"{a}_{b}" for a, b in out.columns]

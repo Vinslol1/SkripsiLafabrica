@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 import config as C
+from ml import rincian as RC
 from ml import simulasi as SIM
 from ml.kebijakan import tepi_bin
 from ml.qlearning import latih_agen
@@ -160,14 +161,15 @@ def evaluasi_aktual(masuk: dict | None, sp: dict, skus: list, par: dict, d_test,
     p["q_aktual"] = Q
     d_pakai = d_test[idx, t0:t0 + T]
     s0 = SIM.taksir_stok_awal(d_pakai, Q)
+    harian = {}
     runs = SIM.evaluasi(p, d_pakai, yh1[idx, t0:t0 + T], yh2[idx, t0:t0 + T], par["sigma"][idx],
                         agen=agen, ruang_list=[par["edges"][i] for i in idx], n_seed=n_seed, d_bar=par["d_bar"][idx],
-                        varian=VARIAN_AKTUAL, indeks_agen=idx, n_agen=len(skus), stok_awal_tetap=s0)
+                        varian=VARIAN_AKTUAL, indeks_agen=idx, n_agen=len(skus), stok_awal_tetap=s0, harian=harian)
     runs["sku"] = [pakai[i] for i in runs["b"]]
     log(f"K1 aktual: {T} hari ({jendela[0]:%d/%m} s.d. {jendela[-1]:%d/%m}), {len(pakai)} bahan dengan barang masuk "
         f"tercatat, {len(dikecualikan)} bahan dikecualikan")
     return {**dasar, "status": "ok", "skus": pakai, "runs": runs, "q": Q, "stok_awal": s0, "pakai": d_pakai,
-            "hari": [str(h.date()) for h in jendela]}
+            "hari": [str(h.date()) for h in jendela], "harian": harian}
 
 
 def jalankan(long: pd.DataFrame, master: pd.DataFrame, biaya: dict = None, tuning=False, n_seed=5,
@@ -236,14 +238,16 @@ def jalankan(long: pd.DataFrame, master: pd.DataFrame, biaya: dict = None, tunin
     agen, kurva = latih_agen(par, data, seeds=C.SIM_SEED[:n_seed], n_episode=n_episode, alpha=alpha, gamma=gamma,
                              log=log)
     log(f"Pelatihan agen selesai ({time.time() - t0:.0f} detik)")
+    harian = {}
     runs = SIM.evaluasi(par, d_test, yh1, yh2, par["sigma"], agen=agen, ruang_list=par["edges"], n_seed=n_seed,
-                        d_bar=par["d_bar"])
+                        d_bar=par["d_bar"], harian=harian)
     runs["sku"] = [skus[b] for b in runs["b"]]
     hasil["aktual"] = evaluasi_aktual(masuk, sp, skus, par, d_test, yh1, yh2, agen, n_seed, log=log,
                                       bahan_data=list(wide.columns))
     if hasil["aktual"]["status"] != "ok" and masuk:
         log(f"K1 aktual belum dihitung: {hasil['aktual'].get('pesan', '')}")
-    hasil.update({"runs": runs, "kurva": kurva, "skus": skus, "par_uji": par, "res_xgb": res,
+    hasil.update({"runs": runs, "harian": harian, "d_test": d_test, "kurva": kurva, "skus": skus, "par_uji": par,
+                  "res_xgb": res,
                   "periode_uji": [str((sp["val_end"] + pd.Timedelta(days=1)).date()), str(sp["test_end"].date())],
                   "minggu_latih_agen": [str(w.date()) for w in wk]})
 
@@ -290,6 +294,8 @@ def simpan_artefak(h: dict, master: pd.DataFrame, folder=None, log=print):
     (folder / "qtable_meta.json").write_text(json.dumps(q_meta, indent=1), encoding="utf-8")
     ev = ringkasan_evaluasi(h, master)
     (folder / "evaluasi.json").write_text(json.dumps(ev, indent=1, default=float), encoding="utf-8")
+    if h.get("harian"):
+        RC.simpan(h, folder)
     log(f"Artefak tersimpan di {folder}")
 
 
@@ -324,7 +330,8 @@ def _banding(runs: pd.DataFrame, skus: list, utama: list, nama: dict, varian, pa
             if len(r):
                 r = r.iloc[0]
                 for c in ("TC", "FR", "hari_stockout", "nilai_terbuang", "WR", "b_s", "b_w", "jumlah_pesan",
-                          "total_diterima", "total_pakai"):
+                          "total_diterima", "total_pakai", "b_h", "b_o", "total_kurang", "terbuang", "jumlah_awal",
+                          "sisa_akhir", "stok_harian", "nilai_sisa", "nilai_diterima"):
                     row[f"{v}_{c}"] = float(r[f"{c}_mean"])
                 row[f"{v}_TC_sd"] = float(r["TC_std"])
         tabel.append(row)
@@ -359,7 +366,7 @@ def ringkas_aktual(h: dict, master: pd.DataFrame, utama: list) -> dict | None:
     a = h.get("aktual")
     if not a:
         return None
-    out = {k: v for k, v in a.items() if k not in ("runs", "q", "stok_awal", "pakai")}
+    out = {k: v for k, v in a.items() if k not in ("runs", "q", "stok_awal", "pakai", "harian")}
     nama = master.set_index("sku")["nama"].to_dict()
     for x in out.get("dikecualikan", []):
         x["nama"] = nama.get(x["sku"], x["sku"])
@@ -451,6 +458,8 @@ def tulis_laporan(h: dict, master: pd.DataFrame, folder=None, log=print):
             pd.DataFrame({"episode": ev["kurva"]["titik"], "rata_reward_semua_agen": k.mean(1)}).to_excel(
                 w, sheet_name="Kurva Pelatihan", index=False)
         tulis_lembar_aktual(w, h, ev, info)
+        if h.get("harian"):
+            RC.tulis_lembar(w, h, ev, info)
     log(f"Laporan Excel tersimpan di {folder}")
 
 
