@@ -48,9 +48,16 @@
   {% endif %}
   {% if hasil and hasil.belum_dilatih %}
   <div class="info"><span class="i">i</span>
+    {% if pemilihan and pemilihan.aturan.cakupan_model == "target" %}
+    <div><b>{{ hasil.belum_dilatih | length }} bahan dimonitor di luar bahan target</b>
+      Model aktif hanya dilatih untuk {{ pemilihan.target | length }} bahan target penelitian, jadi bahan lain tidak dibuatkan prediksi dan rekomendasi.
+      Stok bahan lain tetap bisa dicatat seperti biasa.</div>
+    <a class="tautan" href="/evaluasi#pemilihan">Dasar pemilihan</a></div>
+    {% else %}
     <div><b>{{ hasil.belum_dilatih | length }} bahan dimonitor belum ada di model</b>
       Bahan tanpa riwayat pemakaian cukup pada data latih (mis. bahan baru) belum memiliki prediksi dan Q-table. Jalankan pelatihan ulang setelah datanya terkumpul.</div>
     <a class="tautan" href="/pelatihan">Pelatihan Ulang</a></div>
+    {% endif %}
   {% endif %}
 
   <div class="grid empat" style="margin-top:18px">

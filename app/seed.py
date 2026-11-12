@@ -354,6 +354,8 @@ def ringkasan_run(ev: dict) -> dict:
     for kel in ("utama", "semua"):
         t = ev.get("kebijakan", {}).get(kel, {}).get("total", {})
         out[f"TC_{kel}"] = {v: t[v].get("TC_mean") for v in t}
+    out["n_utama"] = ev.get("kebijakan", {}).get("utama", {}).get("n_bahan")
+    out["bahan_target"] = bool(ev.get("pemilihan"))        # model sejak praproses bahan target (ml/praproses.py)
     return out
 
 

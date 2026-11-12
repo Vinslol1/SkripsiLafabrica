@@ -57,7 +57,7 @@
         <dt>Selesai</dt><dd>{{ aktif.selesai | waktu }}</dd>
         {% if rk.xgb_menang_ma7 is not none %}<dt>XGBoost &gt; MA-7</dt><dd>{{ rk.xgb_menang_ma7 }} / {{ rk.xgb_n_bahan }} bahan</dd>{% endif %}
         {% if rk.ql_params %}<dt>Q-Learning</dt><dd>α {{ rk.ql_params.alpha | angka(2) }}, γ {{ rk.ql_params.gamma | angka(2) }}, {{ rk.ql_params.episode | angka }} episode</dd>{% endif %}
-        {% if rk.TC_utama %}<dt>Biaya uji bahan utama</dt><dd>{% for v, x in rk.TC_utama.items() %}{{ v }} {{ x | rupiah }}{{ "<br>" | safe if not loop.last }}{% endfor %}</dd>{% endif %}
+        {% if rk.TC_utama %}<dt>Biaya uji {{ (rk.n_utama ~ " bahan target") if rk.bahan_target else "bahan utama" }}</dt><dd>{% for v, x in rk.TC_utama.items() %}{{ v }} {{ x | rupiah }}{{ "<br>" | safe if not loop.last }}{% endfor %}</dd>{% endif %}
       </dl>
       <p class="kecil" style="margin-bottom:0"><a href="/evaluasi">Evaluasi prediksi</a> · <a href="/simulasi">Simulasi K1/K2/K3</a></p>
     </div>
@@ -78,7 +78,7 @@
   <div class="kartu-kepala"><h2>Riwayat pelatihan</h2></div>
   <div class="tabel-wadah">
   <table class="tabel rapat">
-    <thead><tr><th>#</th><th>Mulai</th><th>Jenis</th><th>Data</th><th>Status</th><th class="angka">Biaya K1 / K2 / K3 (bahan utama)</th><th>Oleh</th><th></th></tr></thead>
+    <thead><tr><th>#</th><th>Mulai</th><th>Jenis</th><th>Data</th><th>Status</th><th class="angka">Biaya K1 / K2 / K3 (bahan utama atau target)</th><th>Oleh</th><th></th></tr></thead>
     <tbody>
     {% for r in runs %}
       {% set tc = (r.ringkasan or {}).get("TC_utama") or {} %}
@@ -87,7 +87,7 @@
         <td>{{ r.data_mulai | tgl if r.data_mulai else "-" }} – {{ r.data_sampai | tgl if r.data_sampai else "-" }}</td>
         <td>{% if r.aktif %}<span class="status hijau">aktif</span>{% elif r.status == "selesai" %}<span class="status abu">selesai</span>
           {% elif r.status == "berjalan" %}<span class="status biru">berjalan</span>{% else %}<span class="status merah">gagal</span>{% endif %}</td>
-        <td class="angka">{% if tc %}{{ tc.K1 | rupiah }} / {{ tc.K2 | rupiah }} / <b>{{ tc.K3 | rupiah }}</b>{% else %}-{% endif %}</td>
+        <td class="angka">{% if tc %}{{ tc.K1 | rupiah }} / {{ tc.K2 | rupiah }} / <b>{{ tc.K3 | rupiah }}</b>{% if (r.ringkasan or {}).get("n_utama") %}<br><span class="kecil">{{ r.ringkasan.n_utama }} bahan {{ "target" if r.ringkasan.bahan_target else "utama" }}</span>{% endif %}{% else %}-{% endif %}</td>
         <td>{{ r.dibuat_oleh }}</td>
         <td class="nowrap">
           {% if r.status == "selesai" %}<a class="tautan-aksi" href="/laporan/{{ r.id }}/simulasi" title="Laporan simulasi">{{ ikon("unduh", "ikon-k") }}</a>{% endif %}

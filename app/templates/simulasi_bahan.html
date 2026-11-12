@@ -113,7 +113,7 @@
 <div class="kartu">
   <div class="kartu-kepala">
     <h1>Rincian Simulasi: {{ baris.nama }}</h1>
-    <span class="status abu">{{ sku }}</span>{% if baris.utama %} <span class="status hijau">bahan utama</span>{% endif %}
+    <span class="status abu">{{ sku }}</span>{% if baris.utama %} <span class="status hijau">{{ "bahan target" if ev.pemilihan else "bahan utama" }}</span>{% endif %}
     <div class="aksi">
       <a class="tautan-aksi" href="/laporan/{{ model.run_id }}/simulasi">{{ ikon("unduh") }} Laporan Excel</a>
       <a class="tautan-aksi" href="/simulasi?kelompok={{ 'utama' if baris.utama else 'semua' }}">Kembali ke Simulasi</a>
