@@ -217,8 +217,8 @@ data latih setiap bahan.
 | Naive mingguan | 0,448 | 0,560 | 0,579 | 10 dari 10 bahan |
 
 nRMSE XGBoost per bahan: Beans Arabica 0,19; SKM 0,24; Beans House Blend 0,28; Fresh Milk 0,28; Timun 0,37; Telur 0,38;
-Kentang 0,46; Gold Label 0,53; Ayam Penyet 0,66; Powder Beans Wine 0,67. MA-7 lebih akurat pada Beans Arabica dan
-Powder Beans Wine. Keunggulan XGBoost atas MA-7 kecil (nRMSE rata-rata 4% lebih rendah), jadi yang bisa disimpulkan
+Kentang 0,46; Gold Label 0,52; Ayam Penyet 0,66; Powder Beans Wine 0,67. MA-7 sedikit lebih akurat pada Beans Arabica
+dan Telur (RMSE 0,6% dan 2,3% lebih kecil). Keunggulan XGBoost atas MA-7 kecil (nRMSE rata-rata 4% lebih rendah), jadi yang bisa disimpulkan
 adalah XGBoost tidak lebih buruk daripada pembanding terbaik dan lebih akurat pada sebagian besar bahan. Galat prediksi
 rekursif 1 sampai 7 hari ke depan naik sedikit, dari nMAE 0,344 ke 0,362.
 
@@ -239,8 +239,9 @@ Hasil uji per bahan (Wilcoxon satu arah):
   total biayanya 1,9% lebih tinggi daripada K2.
 
 Jadi pada 10 bahan ini kedua kebijakan dengan ROP dinamis memangkas sekitar 79% biaya K1 statis, tetapi Q-Learning belum
-terbukti lebih murah daripada aturan order-up-to. K3 lebih murah pada Fresh Milk, Ayam Penyet, Kentang, dan Gold Label,
-dan lebih mahal pada Telur (Rp 83.593 dibanding Rp 16.593) serta Timun. Biaya K1 statis terkumpul di empat bahan
+terbukti lebih murah daripada aturan order-up-to. K3 lebih murah pada 5 bahan, dengan selisih terbesar pada Ayam Penyet
+(Rp 31.890) dan Fresh Milk (Rp 22.159). K3 lebih mahal pada 5 bahan lain, terutama Telur (Rp 83.593 dibanding
+Rp 16.593, karena K3 membuang telur senilai Rp 62.018) dan Timun (selisih Rp 9.102). Biaya K1 statis terkumpul di empat bahan
 (Timun, Fresh Milk, Telur, dan Ayam Penyet, 94% TC), karena pesanan EOQ yang jarang dan besar membuat bahan itu
 bergantian kehabisan dan terbuang.
 
