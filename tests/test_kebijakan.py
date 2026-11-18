@@ -178,13 +178,13 @@ def test_evaluasi_aktual_memilih_bahan_dan_skenario_stok_awal():
     baris = pd.DataFrame({"tanggal": pd.to_datetime(["2026-10-24", "2026-10-25", "2026-10-24", "2026-10-24"]),
                           "sku": ["A", "A", "B", "X"], "jumlah": [4.0, 2.0, np.nan, 1.0]})
     hari = pd.to_datetime(["2026-10-24", "2026-10-25", "2026-10-26", "2026-10-27"])
-    a = evaluasi_aktual({"baris": baris, "hari": hari}, sp, skus, par, d, d, d, None, 1, log=lambda *_: None,
-                        bahan_data=skus)
+    a = evaluasi_aktual({"baris": baris, "hari": hari}, sp, skus, par, d, d, d, None, 1, log=lambda *_: None)
     assert a["status"] == "ok" and a["n_hari"] == 3 and a["periode"] == ["2026-10-24", "2026-10-26"]
     assert a["skus"] == ["A"] and a["q"].tolist() == [[4.0, 2.0, 0.0]]
     assert {x["sku"]: x["alasan"] for x in a["dikecualikan"]} == {
-        "B": "jumlah barang masuk belum diketahui (isi kemasan)", "X": "tidak ada di data stok keluar"}
-    assert a["n_tanpa_masuk"] == 1                           # C terpakai tetapi tidak punya barang masuk
+        "B": "jumlah barang masuk belum diketahui (isi kemasan)"}
+    assert a["n_luar_cakupan"] == 1                          # X punya barang masuk tetapi tidak dimodelkan
+    assert a["n_tanpa_masuk"] == 1 and a["tanpa_masuk"] == ["C"]   # C terpakai tetapi tidak punya barang masuk
     assert a["stok_awal"].tolist() == [0.0]                  # 4 + 2 cukup untuk 2 + 2 + 2
     runs = a["runs"]
     assert set(runs["varian"]) == {"K1A", "K1", "K2"}        # tanpa agen, K3 dilewati

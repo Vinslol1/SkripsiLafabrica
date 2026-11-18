@@ -13,10 +13,12 @@
   <div class="kartu-kepala">
     <h1>Simulasi Kebijakan Persediaan</h1>
     <div class="aksi">
+      {% if ev.kebijakan.utama.n_bahan != ev.kebijakan.semua.n_bahan %}
       <div class="segmen">
-        <a href="?kelompok=utama" class="{{ 'aktif' if kelompok == 'utama' }}">Bahan utama ({{ ev.kebijakan.utama.n_bahan }})</a>
+        <a href="?kelompok=utama" class="{{ 'aktif' if kelompok == 'utama' }}">{{ "Bahan target" if ev.pemilihan else "Bahan utama" }} ({{ ev.kebijakan.utama.n_bahan }})</a>
         <a href="?kelompok=semua" class="{{ 'aktif' if kelompok == 'semua' }}">Semua bahan ({{ ev.kebijakan.semua.n_bahan }})</a>
       </div>
+      {% else %}<span class="status hijau">{{ ev.kebijakan.utama.n_bahan }} bahan target</span>{% endif %}
       <a class="tombol" href="/laporan/{{ model.run_id }}/simulasi">{{ ikon("unduh", "ikon-k") }} Unduh Laporan Excel</a>
     </div>
   </div>
@@ -26,7 +28,9 @@
     Setiap bahan dijalankan dari 5 tingkat stok awal (0; 0,5; 1; 2; 3 × rata-rata pemakaian harian){% if ev.ql_params %}; agen K3 dilatih {{ ev.ql_params.episode | angka }} episode
     dengan α = {{ ev.ql_params.alpha | angka(2) }}, γ = {{ ev.ql_params.gamma | angka(2) }} pada {{ ev.minggu_latih_agen | length }} minggu data sebelum periode uji, 5 seed{% endif %}.
     Angka di bawah adalah total seluruh bahan dalam kelompok, rata-rata atas semua run.
-    {% if kelompok == "utama" %}<b>Bahan utama</b> = bahan cepat rusak (masa simpan &le; 30 hari) yang dipakai pada &ge; 50% hari data, sesuai batasan masalah.{% endif %}
+    {% if ev.pemilihan %}<b>Bahan target</b> = {{ ev.pemilihan.target | length }} bahan cepat rusak (masa simpan &le; {{ ev.pemilihan.aturan.masa_simpan_maks }} hari) yang paling sering dipakai dan paling besar nilai pemakaiannya,
+      dipilih setelah bahan yang kosong atau banyak bernilai 0 dikeluarkan. Dasar pemilihannya ada di <a href="/evaluasi#pemilihan">Evaluasi Prediksi</a>.
+    {% elif kelompok == "utama" %}<b>Bahan utama</b> = bahan cepat rusak (masa simpan &le; 30 hari) yang dipakai pada &ge; 50% hari data, sesuai batasan masalah.{% endif %}
   </div>
 </div>
 
@@ -60,12 +64,14 @@
       {% if not ak.layak %}Periode masih kurang dari {{ ak.min_hari }} hari, jadi angka di bawah belum layak dijadikan kesimpulan. Impor stok keluar majoo
         sampai {{ ak.catatan[1] | tgl }} (dan catatan minggu berikutnya), lalu jalankan <a href="/pelatihan">Pelatihan Ulang</a>.{% endif %}
     </div></div>
-    {% if ak.dikecualikan or ak.n_tanpa_masuk %}
+    {% if ak.dikecualikan or ak.n_tanpa_masuk or ak.n_luar_cakupan %}
     <details class="kecil" style="margin-top:10px">
       <summary>{{ ak.dikecualikan | length }} bahan dengan barang masuk tercatat tidak ikut diuji{% if ak.n_tanpa_masuk %}; {{ ak.n_tanpa_masuk }} bahan terpakai tanpa barang masuk tercatat{% endif %}</summary>
       <ul style="margin:6px 0 0;padding-left:18px">
         {% for alasan, xs in ak.dikecualikan | groupby("alasan") %}<li><b>{{ alasan | capitalize }}:</b> {% for x in xs %}{{ x.nama }}{{ ", " if not loop.last }}{% endfor %}</li>{% endfor %}
-        {% if ak.n_tanpa_masuk %}<li>{{ ak.n_tanpa_masuk }} bahan lain terpakai di periode ini tetapi tidak ada di catatan barang masuk (biasanya dibeli jarang), jadi tidak diuji.</li>{% endif %}
+        {% if ak.n_tanpa_masuk %}<li>{% if ak.tanpa_masuk %}<b>Terpakai di periode ini tetapi tidak ada di catatan barang masuk (biasanya dibeli jarang), jadi tidak diuji:</b>
+          {% for x in ak.tanpa_masuk %}{{ x.nama }}{{ ", " if not loop.last }}{% endfor %}{% else %}{{ ak.n_tanpa_masuk }} bahan lain terpakai di periode ini tetapi tidak ada di catatan barang masuk (biasanya dibeli jarang), jadi tidak diuji.{% endif %}</li>{% endif %}
+        {% if ak.n_luar_cakupan %}<li>Barang masuk untuk {{ ak.n_luar_cakupan }} bahan lain juga tercatat, tetapi bahan itu tidak dimodelkan (di luar bahan target), jadi tidak diuji.</li>{% endif %}
       </ul>
     </details>
     {% endif %}
@@ -77,7 +83,7 @@
       <span class="label">{{ nama_varian[v].split(" · ")[0] }}{% if d.TC_mean <= tca_min + 0.5 %} <span class="status hijau">{{ ikon("bintang", "ikon-k") }} terendah</span>{% endif %}</span>
       <span class="nilai">{{ d.TC_mean | rupiah }}</span>
       <span class="bawah">{{ nama_varian[v].split(" · ")[1] }}; total biaya {{ ak.n_hari }} hari</span>
-      <dl class="rincian" style="margin-top:10px;font-size:13.5px">
+      <dl class="rincian kanan" style="margin-top:10px;font-size:13.5px">
         <dt>Fill rate</dt><dd>{{ d.FR_rata_mean | persen }}</dd>
         <dt>Rasio terbuang</dt><dd>{{ d.WR_rata_mean | persen }}</dd>
         <dt>Hari kehabisan</dt><dd>{{ d.hari_stockout_mean | angka(1) }}</dd>
@@ -188,7 +194,7 @@
 </div>
 
 <div class="kartu" style="margin-top:18px" id="asal-biaya">
-  <div class="kartu-kepala"><h2>Asal biaya dan sisa stok ({{ "bahan utama" if kelompok == "utama" else "semua bahan" }})</h2></div>
+  <div class="kartu-kepala"><h2>Asal biaya dan sisa stok ({{ ("bahan target" if ev.pemilihan else "bahan utama") if kelompok == "utama" else "semua bahan" }})</h2></div>
   <div class="tabel-wadah">
   <table class="tabel rapat">
     <thead><tr><th>Komponen</th><th>Cara hitung (setiap bahan, setiap hari)</th>{% for v in ["K1", "K2", "K3"] %}<th class="angka">{{ nama_varian[v].split(" · ")[0] }}</th>{% endfor %}</tr></thead>

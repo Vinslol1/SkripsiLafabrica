@@ -105,12 +105,12 @@
         <dt>Data latih</dt><dd>s.d. {{ run.data_sampai | tgl }}</dd>
         <dt>XGBoost &gt; MA-7</dt><dd>{{ ev.xgb_menang_ma7 }} / {{ ev.xgb_n_bahan }} bahan</dd>
         <dt>Biaya uji K1</dt><dd>{{ tu.K1.TC_mean | rupiah }}</dd>
-        <dt>Biaya uji K2</dt><dd>{{ tu.K2.TC_mean | rupiah }}</dd>
-        <dt>Biaya uji K3</dt><dd style="color:var(--hijau-tua)">{{ tu.K3.TC_mean | rupiah }}</dd>
+        <dt>Biaya uji K2</dt><dd{% if tu.K2.TC_mean < tu.K3.TC_mean %} style="color:var(--hijau-tua)"{% endif %}>{{ tu.K2.TC_mean | rupiah }}</dd>
+        <dt>Biaya uji K3</dt><dd{% if tu.K3.TC_mean <= tu.K2.TC_mean %} style="color:var(--hijau-tua)"{% endif %}>{{ tu.K3.TC_mean | rupiah }}</dd>
         <dt>Fill rate K3</dt><dd>{{ tu.K3.FR_rata_mean | persen }}</dd>
       </dl>
-      <p class="kecil" style="margin-bottom:0">Simulasi 28 hari data uji, {{ ev.kebijakan.utama.n_bahan }} bahan utama.
-        {% if tu.K1.TC_mean > 0 %}K3 {{ (1 - tu.K3.TC_mean / tu.K1.TC_mean) | persen(0) }} lebih hemat dari K1 dan {{ (1 - tu.K3.TC_mean / tu.K2.TC_mean) | persen(0) }} dari K2.{% endif %}</p>
+      <p class="kecil" style="margin-bottom:0">Simulasi 28 hari data uji, {{ ev.kebijakan.utama.n_bahan }} {{ "bahan target" if ev.pemilihan else "bahan utama" }}.
+        {% if tu.K1.TC_mean > 0 and tu.K2.TC_mean > 0 %}{% set s2 = 1 - tu.K3.TC_mean / tu.K2.TC_mean %}K3 {{ (1 - tu.K3.TC_mean / tu.K1.TC_mean) | persen(0) }} lebih hemat dari K1{% if s2 >= 0 %} dan {{ s2 | persen(0) }} lebih hemat dari K2{% else %}, tetapi {{ (-s2) | persen(0) }} lebih mahal dari K2{% endif %}.{% endif %}</p>
     </div>
     {% else %}
     <div class="kartu-isi">Belum ada model aktif. <a href="/pelatihan">Latih model</a>.</div>

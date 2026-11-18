@@ -1,7 +1,8 @@
 """Merapikan catatan manual cafe (laporan WhatsApp "REPORT ORDER" dan "barang masuk hari ini").
 
 Catatan harian cafe ditulis bebas per bagian (bar depan, bar belakang, kitchen, makan karyawan). Modul ini:
-  1. memisahkan teks menjadi laporan order dan laporan barang masuk per tanggal,
+  1. memisahkan teks menjadi laporan order dan laporan barang masuk per tanggal (teks boleh berupa tempelan
+     biasa atau pesan WhatsApp yang diteruskan, lengkap dengan awalan "[11/11, 18:53] nama: "),
   2. mengurai setiap baris menjadi nama barang, jumlah, satuan, dan keterangan,
   3. mencocokkan nama barang dengan data bahan (SKU) dan mengubah jumlah ke satuan dasar majoo.
 
@@ -19,10 +20,13 @@ import pandas as pd
 from ml.simulasi import jendela_aktual  # noqa: F401  (dipakai halaman Catatan Barang Masuk)
 
 BULAN = {"januari": 1, "februari": 2, "maret": 3, "april": 4, "mei": 5, "juni": 6, "juli": 7, "agustus": 8,
-         "september": 9, "oktober": 10, "november": 11, "desember": 12}
+         "september": 9, "oktober": 10, "november": 11, "desember": 12,
+         "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7, "agu": 8, "ags": 8, "agt": 8, "agust": 8,
+         "sep": 9, "sept": 9, "okt": 10, "nov": 11, "nop": 11, "des": 12}
 
 BAGIAN = {"bar depan": "Bar depan", "bar belakang": "Bar belakang", "kitchen": "Kitchen",
-          "makan karyawan": "Makan karyawan"}
+          "makan karyawan": "Makan karyawan", "waiters": "Waiters"}
+TIDAK_DIKETAHUI = "Tidak diketahui"
 
 # status baris
 DIPAKAI = "dipakai"                       # cocok dengan data bahan dan jumlahnya jelas
@@ -45,28 +49,48 @@ _SINGKATAN = [
     (r"\bminyk\b|\bmiinyk\b", "minyak"), (r"\bmkan\b|\bmakn\b|\bmkn\b", "makan"), (r"\bbngo\b|\bbongo\b", "bango"),
     (r"\bpaking\b|\bpeking\b", "packing"), (r"\bmoca\b", "mocca"), (r"\bkeci\b", "leci"), (r"\bsawi nanas\b", "sawi manis"),
     (r"\bbutter croissant\b", "croissant"), (r"\bgreenfielda\b", "greenfields"),
+    # ejaan yang muncul di catatan November
+    (r"\balvukad\b|\ballukat\b|\balpokat\b", "alpukat"), (r"\bkasuari\b", "kasturi"), (r"\banyam\b", "ayam"),
+    (r"\bkampoeng\b", "kampung"), (r"\bwoerter\b", "wortel"), (r"\bjanteen\b", "janten"), (r"\bkeca\b", "kecap"),
+    (r"\blecing\b|\blecy\b", "leci"), (r"\bdripp\b", "drip"), (r"\bsereh\b", "serai"), (r"\bubu roti\b", "ubi roti"),
+    (r"\budangnkering\b", "udang kering"), (r"\bmashroom\b", "mushroom"), (r"\bsaging\b", "daging"),
+    (r"\bsbun\b", "sabun"), (r"\bpaprik\b", "paprika"), (r"\budng\b", "udang"), (r"\bbenas\b", "beans"),
+    (r"\bhostblend\b|\bhouseblend\b", "house blend"), (r"\bbiscof\b", "biscoff"), (r"\bnuttela\b", "nutella"),
+    (r"\btengerine\b", "tangerine"), (r"\bvanila\b", "vanilla"), (r"\bbilognaise\b|\bbolognaise\b", "bolognese"),
+    (r"\bmi (?=telur|aceh)", "mie "), (r"\bbawng\b", "bawang"),
 ]
 
 # (pola nama yang sudah dinormalkan, bagian atau None, SKU atau status, catatan asumsi atau "")
-ALIAS = [
-    # bar depan
+# Teks di antara pola menandai kelompok bagian tempat barang itu biasa dicatat (dipakai tebak_bagian).
+_ALIAS_PER_BAGIAN = [
+    "Bar depan",
     (r"^beans? (arabica|brazil|arabica brazil)\b", None, "BB01", "beans brazil dianggap Beans Arabica"),
-    (r"^beans? house blend", None, "BB02", ""),
-    (r"^beans? ciwid[ae]y", None, BELUM_ADA, "beans Ciwidey belum terdaftar di data bahan"),
+    (r"^beans? house blend|^(house )?blend beans?", None, "BB02", ""),
+    (r"^beans? blend", None, "BB02", "beans blend dianggap Beans House Blend"),
+    (r"^beans? argopuro", None, "BB03", ""),
+    (r"^(beans? |powder )?wine\b", None, "BB20", "wine dianggap Powder Beans Wine"),
+    (r"^beans? ciwid[ae]y|^ciwid[ae]y beans?", None, BELUM_ADA, "beans Ciwidey belum terdaftar di data bahan"),
     (r"^(powder )?denali (powder )?matcha|^powder (denali )?matcha", None, "BB15", ""),
     (r"^(powder )?denali (powder )?coklat|^powder (denali )?coklat", None, "BB09", ""),
     (r"^monin grenadine", None, "BB24", ""),
     (r"^monin peach", None, "BB33", ""),
+    (r"^monin tangerine", None, "BB32", ""),
     (r"^drip mint", None, "BB14", ""),
-    (r"^drip leci", None, "BB30", ""),
-    (r"^drip (sauce )?caramel", None, "BB11", ""),
+    (r"^drip leci|^leci drip", None, "BB30", ""),
+    (r"^drip (sauce )?caramel|^(saus|sauce) caramel", None, "BB11", ""),
     (r"^drip strawberry", None, "BB22", ""),
-    (r"^drip vanilla", None, "BB10", ""),
+    (r"^strawberry pure", None, "BB22", "strawberry pure dianggap Drip Strawberry"),
+    (r"^drip vanilla|^vanilla drip", None, "BB10", ""),
     (r"^ice cream vanilla", None, "BB16", ""),
     (r"^ice cream three colou?r", None, "BB150", ""),
     (r"^ice cream strawberry", None, "BB149", ""),
     (r"^gold label", None, "BB18", ""),
-    (r"^teh celup lipton", None, "BB26", ""),
+    (r"^teh (celup )?lipton", None, "BB26", ""),
+    (r"^(bubuk |powder )?teh bendera", None, "BB29", ""),
+    (r"^(kantong )?teh jasmine|^jasmine tea", None, "BB07", ""),
+    (r"^biscoff", None, "BB39", ""),
+    (r"^gula aren(?! stic?k)", None, "BB17", ""),
+    (r"^kue (kering|salju)", None, BELUM_ADA, "kue kering titipan belum terdaftar sebagai bahan"),
     (r"^croissant", None, "SNS001", ""),
     (r"^(buah )?alpukat", None, "BB25", ""),
     (r"^madu", "Bar depan", "BB05", "madu bar depan dianggap Madu Hutan (Bar Coffee)"),
@@ -76,7 +100,7 @@ ALIAS = [
     (r"^mocca ceres", None, "BB155", ""),
     (r"^brownies (burn |burnt )?cheese ?cake", None, "BB152", ""),
     (r"^cheese ?cake", None, "BB154", ""),
-    (r"^freshmilk|^fresh milk", None, "BB08", ""),
+    (r"^freshmilk|^fresh milk|^greenfields?", None, "BB08", ""),
     (r"^(powder |bubuk )thai tea", None, "BB28", ""),
     (r"^leci kaleng", None, "BB31", ""),
     (r"^daun mint", None, "BB27", ""),
@@ -85,10 +109,10 @@ ALIAS = [
     (r"^gabin", None, BELUM_ADA, "gabin belum terdaftar sebagai bahan"),
     (r"^buko pandan", None, "BB153", ""),
     (r"^kacang\b", "Bar depan", "SNS010", "kacang bar depan dianggap Kacang Snack"),
-    (r"^skm putih|^skm \d|^skm$", None, "BB19", ""),
+    (r"^skm (putih|original)|^skm \d|^skm$", None, "BB19", ""),
     (r"^daun rosemary", None, BELUM_ADA, "rosemary belum terdaftar sebagai bahan"),
     (r"^(buah )?semangka", None, "BB36", ""),
-    # bar belakang
+    "Bar belakang",
     (r"^jambu", None, "BB165", ""),
     (r"^melon", None, "BB170", ""),
     (r"^sawi manis", "Bar belakang", BELUM_ADA, "sawi manis bar belakang belum terdaftar sebagai bahan"),
@@ -109,9 +133,10 @@ ALIAS = [
     (r"^serai", None, "BB164", ""),
     (r"^milo|^coklat$", None, "BB161", ""),
     (r"^wortel", None, "BB40", ""),
-    # kitchen
+    "Kitchen",
     (r"^beras", None, "BB126", ""),
-    (r"^daging sapi", None, "BB109", ""),
+    (r"^daging asap", None, "BB108", ""),
+    (r"^daging sapi|^sapi\b", None, "BB109", ""),
     (r"^ayam dada", None, "BB133", "ayam dada dianggap Ayam Slice"),
     (r"^ayam penyet", None, "BB132", ""),
     (r"^ayam spe[cs]ial|^ayam\b", "Kitchen", "BB176", ""),
@@ -130,23 +155,23 @@ ALIAS = [
     (r"^cabe hijau", None, "BB118", ""),
     (r"^cabe rawit", None, "BB116", ""),
     (r"^cabe merah", None, "BB117", ""),
-    (r"^cabe caplak", None, "BB119", ""),
+    (r"^cabe caplak|^caplak", None, "BB119", ""),
     (r"^cabe geprek", None, "BB119", "cabe geprek dianggap Cabe Caplak"),
     (r"^cabe giling", None, BELUM_ADA, "cabe giling belum terdaftar sebagai bahan"),
     (r"^bawang merah", None, "BB129", ""),
     (r"^bawang putih", None, "BB127", ""),
     (r"^bawang packing", None, "BB128", ""),
     (r"^bawang goreng", None, "BB130", ""),
-    (r"^bawang bombai|^bombai", None, "BB124", ""),
+    (r"^(bawang )?bomba[iy]", None, "BB124", ""),
     (r"^saori lada hitam", None, "BB68", ""),
-    (r"^saos tiram", None, "BB65", ""),
+    (r"^(saori )?saos tiram", None, "BB65", ""),
     (r"^saos tomat", None, "BB64", ""),
     (r"^sawi putih", None, "BB61", ""),
     (r"^sawi (hijau|manis)|^sawi$", "Kitchen", "BB62", "sawi/sawi manis kitchen dianggap Sawi Hijau"),
     (r"^tauge", None, "BB140", ""),
     (r"^kol\b", None, "BB178", ""),
     (r"^daun pre", None, "BB107", ""),
-    (r"^bumbu (mie )?aceh", None, "BB122", ""),
+    (r"^bumbu (mie? )?aceh", None, "BB122", ""),
     (r"^kentang goreng", None, "BB93", "kentang goreng dianggap Kentang"),
     (r"^kentang", None, "BB93", ""),
     (r"^srikaya", None, "BB55", ""),
@@ -159,6 +184,7 @@ ALIAS = [
     (r"^tepung (pisang )?adabi", None, "BB51", ""),
     (r"^tepung sajiku|^sajiku", None, "BB121", ""),
     (r"^tepung roti", None, "BB52", ""),
+    (r"^tepung panir", None, "BB53", ""),
     (r"^tepung terigu", None, "BB49", ""),
     (r"^indomie (goreng|goreng goreng)", None, "BB103", ""),
     (r"^indomie (kari|kuah)", None, "BB102", "indomie kuah dianggap Indomie Kari"),
@@ -171,6 +197,13 @@ ALIAS = [
     (r"^chicken burger", None, "BB114", ""),
     (r"^cheese burger", None, "BB115", "cheese burger dianggap Beef Burger"),
     (r"^pizza meat lovers", None, "BB75", ""),
+    (r"^pizza mushroom", None, "BB74", ""),
+    (r"^risol mayo", None, "BB73", ""),
+    (r"^nutella|^ceres nutella", None, "BB81", ""),
+    (r"^jahe", None, "BB101", ""),
+    (r"^kucai", None, "BB91", ""),
+    (r"^gas (fortable|portable)", None, BUKAN_BAHAN, ""),
+    (r"^gas\b", None, "BB105", ""),
     (r"^paprika", None, "BB79", ""),
     (r"^timun", None, "BB46", ""),
     (r"^tomat", None, "BB45", ""),
@@ -189,6 +222,7 @@ ALIAS = [
     (r"^maizena", None, "BB146", ""),
     (r"^ikan teri|^teri", None, "BB48", ""),
     (r"^roti tawar", None, "BB71", ""),
+    (r"^roti$", "Kitchen", "BB71", "roti (tanpa keterangan) di kitchen dianggap Roti Tawar"),
     (r"^pasta tomyam", None, "BB77", ""),
     (r"^mayonaise|^mayones", None, "BB147", ""),
     (r"^oregano", None, "BB80", ""),
@@ -196,16 +230,24 @@ ALIAS = [
     (r"^keju\b", None, "BB94", ""),
     (r"^mantao", None, "BB87", ""),
     (r"^samosa curry", None, "BB69", ""),
+    (r"^samosa bolognese", None, "BB70", ""),
     (r"^siomay", None, "BB58", ""),
     (r"^lumpia", None, "BB88", ""),
     (r"^mie telur", None, "BB83", ""),
     (r"^telur\b", None, "ST001", ""),
     (r"^terasi", None, BELUM_ADA, "terasi belum terdaftar sebagai bahan"),
     (r"^bumbu ayam penyet", None, BELUM_ADA, "bumbu ayam penyet belum terdaftar sebagai bahan"),
-    # perlengkapan
-    (r"^(gula stic?k|sendok|tusuk gigi|sedotan|pengharum|cup|gelas|hands? gloves|plastik|sisa tutup|tidak ada orderan"
-     r"|parkir)", None, BUKAN_BAHAN, ""),
+    "",                                                       # perlengkapan
+    (r"^(gula stic?k|gula aren stic?k|sendok|tusuk gigi|sedotan|pengharum|cup|gelas|hands? gloves|plastik|sisa tutup"
+     r"|tidak ada orderan|parkir|lesung|sabun|mama lemon|daun pisang)", None, BUKAN_BAHAN, ""),
 ]
+ALIAS, _KELOMPOK_ALIAS = [], []
+for _a in _ALIAS_PER_BAGIAN:
+    if isinstance(_a, str):
+        _kelompok = _a
+    else:
+        ALIAS.append(_a)
+        _KELOMPOK_ALIAS.append(_kelompok)
 
 # Isi satu satuan pembelian dalam satuan dasar bila data bahan tidak punya konversinya (asumsi, perlu dicek).
 # Kunci: (SKU, satuan) -> (isi, keterangan)
@@ -216,6 +258,7 @@ ISI_ASUMSI = {
     ("BB79", "buah"): (150.0, "1 buah paprika dianggap 150 g"),
     ("BB76", "sisir"): (12.0, "1 sisir pisang dianggap 12 buah"),
     ("BB54", "batang"): (250.0, "1 batang tempe dianggap 250 g (Pcs = 250 g di data bahan)"),
+    ("BB54", "bungkus"): (250.0, "1 bungkus tempe dianggap sama dengan 1 batang (250 g)"),
     ("BB92", "bungkus"): (1000.0, "1 bungkus kerupuk dianggap 1.000 g (isi kemasan di data bahan)"),
     ("BB51", "bungkus"): (1000.0, "1 bungkus tepung adabi dianggap 1.000 g"),
     ("BB121", "bungkus"): (1000.0, "1 bungkus bumbu racik/sajiku dianggap 1.000 g"),
@@ -228,7 +271,8 @@ ISI_ASUMSI = {
     ("BB106", "bungkus"): (250.0, "1 bungkus garam dianggap 250 g"),
     ("BB104", "bungkus"): (500.0, "1 bungkus ifumie dianggap 500 g"),
     ("BB83", "bungkus"): (200.0, "1 bungkus mie telur dianggap 200 g"),
-    ("BB56", "bungkus"): (500.0, "1 bungkus spaghetti dianggap 500 g"),
+    ("BB83", "botol"): (200.0, "mie telur tertulis \"btl\", dianggap salah tulis \"bks\" (1 bungkus = 200 g)"),
+    ("BB56", "bungkus"): (1000.0, "1 bungkus spaghetti dianggap 1.000 g (catatan 3 dan 9 Nov: 1 bks = 1.000 g)"),
     ("BB95", "bungkus"): (520.0, "1 bungkus kecap manis dianggap 520 g"),
     ("BB147", "bungkus"): (1000.0, "1 bungkus mayonaise dianggap 1.000 g"),
     ("BB93", "bungkus"): (1000.0, "1 bungkus kentang goreng dianggap 1.000 g (catatan 1 Nov)"),
@@ -242,6 +286,10 @@ ISI_ASUMSI = {
     ("BB88", "pax"): (10.0, "1 pax lumpia dianggap 10 pcs"),
     ("BB113", "porsi"): (5.0, "1 porsi churros dianggap 5 pcs"),
     ("BB115", "porsi"): (1.0, "1 porsi cheese burger dianggap 1 pcs"),
+    ("BB114", "porsi"): (1.0, "1 porsi chicken burger dianggap 1 pcs"),
+    ("BB69", "pack"): (5.0, "1 pack samosa dianggap 5 pcs"),
+    ("BB70", "pack"): (5.0, "1 pack samosa dianggap 5 pcs"),
+    ("BB70", "pax"): (5.0, "1 pax samosa dianggap 5 pcs"),
     ("BB55", "botol"): (500.0, "1 botol srikaya dianggap 500 g"),
     ("BB55", "pcs"): (500.0, "1 pcs srikaya dianggap 1 botol 500 g"),
     ("BB96", "botol"): (600.0, "1 botol kecap asin dianggap 600 g"),
@@ -253,6 +301,17 @@ ISI_ASUMSI = {
     ("BB162", "botol"): (620.0, "1 botol sirup kurnia dianggap 620 g"),
     ("BB163", "crate"): (24.0, "1 crate badak dianggap 24 botol"),
     ("BB175", "kardus"): (24.0, "1 kardus air mineral dianggap 24 botol"),
+    ("BB175", "kotak"): (24.0, "1 kotak air mineral dianggap 24 botol"),
+    ("BB01", "bag"): (1000.0, "1 bag beans dianggap 1.000 g (catatan 2 Nov: 1 pack = 1.000 g)"),
+    ("BB02", "bag"): (1000.0, "1 bag beans dianggap 1.000 g (catatan 2 Nov: 1 pack = 1.000 g)"),
+    ("BB03", "bag"): (1000.0, "1 bag beans dianggap 1.000 g"),
+    ("BB12", "botol"): (500.0, "1 botol sari lemon dianggap 500 g (catatan 3 Nov)"),
+    ("BB15", "pack"): (800.0, "1 pack powder matcha dianggap 800 g (catatan 3 Nov)"),
+    ("BB33", "botol"): (700.0, "1 botol monin dianggap 700 g (catatan 2 Nov)"),
+    ("BB32", "botol"): (700.0, "1 botol monin dianggap 700 g"),
+    ("BB30", "botol"): (760.0, "1 botol drip leci dianggap 760 g (catatan 2 Nov)"),
+    ("BB27", "pcs"): (50.0, "1 pcs daun mint dianggap 1 pack 50 g"),
+    ("BB18", "kotak"): (907.0, "1 kotak gold label dianggap sama dengan 1 botol 907 g (data bahan)"),
     ("BB160", "pack"): (1000.0, "1 pack kopi sumatera dianggap 1.000 g (catatan 27 Okt: 2 bks = 2.000 g)"),
     ("BB19", "dus"): (None, "isi 1 dus SKM (berapa kaleng) belum diketahui"),
     ("BB161", "pack"): (1000.0, "1 pack milo dianggap 1.000 g"),
@@ -275,11 +334,12 @@ SATUAN = {
     "kg": "kg", "kh": "kg", "lg": "kg", "jg": "kg", "kilo": "kg",
     "ons": "ons", "l": "liter", "liter": "liter", "ltr": "liter",
     "ekor": "ekor", "potong": "potong", "btng": "batang", "batang": "batang",
-    "bks": "bungkus", "bk": "bungkus", "ks": "bungkus", "bungkus": "bungkus",
+    "bks": "bungkus", "bk": "bungkus", "ks": "bungkus", "bungkus": "bungkus", "bms": "bungkus",
     "botol": "botol", "btol": "botol", "botil": "botol", "btl": "botol",
     "pack": "pack", "pak": "pack", "pck": "pack", "pax": "pax",
     "kaleng": "kaleng", "buah": "buah", "sisir": "sisir", "papan": "papan", "ppn": "papan",
-    "crate": "crate", "kardus": "kardus", "dus": "dus", "lusin": "lusin", "porsi": "porsi",
+    "crate": "crate", "krat": "crate", "kardus": "kardus", "dus": "dus", "lusin": "lusin", "porsi": "porsi",
+    "bag": "bag", "tabung": "tabung", "tbung": "tabung",
     "pcs": "pcs", "pc": "pcs", "kotak": "kotak", "loyang": "loyang", "renteng": "renteng", "ikat": "ikat",
     "butir": "butir", "keping": "keping", "rb": "rb", "ribu": "rb",
 }
@@ -299,6 +359,8 @@ class Laporan:
     tanggal: date = None       # tanggal setelah koreksi (lihat koreksi_tanggal_order)
     catatan: str = ""
     baris: list = field(default_factory=list)
+    bagian: str | None = None  # bagian yang disebut di judul laporan ("Barang masuk bar kitchen 9 nov")
+    belanja: bool = False      # daftar belanja ("Belanja frozen"): dicatat sebagai order, bukan barang masuk
 
 
 def _angka(s: str) -> float:
@@ -317,22 +379,114 @@ def _tanggal(h: str, b: str, t: str) -> date:
     return date(int(t), BULAN[b.lower()], int(h))
 
 
+# awalan pesan WhatsApp yang diteruskan atau diekspor: "[11/11, 18:53] kevin: ", "[2/11/26 07.15.02] Nama: "
+_RE_WA = re.compile(r"^\s*\[\d{1,2}/\d{1,2}(?:/\d{2,4})?,?\s+\d{1,2}[:.]\d{2}(?:[:.]\d{2})?(?:\s*[ap]m)?\]\s*[^:\n]{1,40}:\s?",
+                    re.I)
+_RE_JUDUL = re.compile(r"^(report\s+order|barang\s+masuk|order(?:an)?|belanja)\b(.*)$")
+_HARI = {"senin", "selasa", "rabu", "kamis", "jumat", "jum", "at", "sabtu", "minggu", "ahad"}
+# kata yang boleh ada di baris judul selain tanggal dan nama bagian
+_KATA_JUDUL = {"hari", "hri", "ini", "tanggal", "tgl", "tnggl", "tanggl", "tngl", "tggl", "lafabrica", "bar", "depan",
+               "belakang", "kitchen", "waiters", "waiter", "orderan", "order", "barang", "masuk"} | _HARI
+
+
+def _tanggal_dari(s: str, konteks: date | None = None) -> tuple[date | None, str]:
+    """Tanggal di baris judul dan sisa teksnya. Bulan atau tahun yang tidak ditulis diambil dari laporan sebelumnya."""
+    def aman(t, b, h):
+        try:
+            return date(t, b, h)
+        except ValueError:
+            return None
+
+    m = re.search(r"(\d{1,2})\s*[-/ ]\s*([a-z]{3,9})\s*[-/ ]?\s*(\d{4})\b", s)
+    if m and m.group(2) in BULAN:
+        return aman(int(m.group(3)), BULAN[m.group(2)], int(m.group(1))), s[:m.start()] + " " + s[m.end():]
+    m = re.search(r"\b(\d{1,2})\s*/\s*(\d{1,2})\s*/\s*(\d{2}|\d{4})\b", s)
+    if m:
+        t = int(m.group(3))
+        return aman(t + 2000 if t < 100 else t, int(m.group(2)), int(m.group(1))), s[:m.start()] + " " + s[m.end():]
+    m = re.search(r"\b(\d{1,2})\s*[-/ ]?\s*([a-z]{3,9})\b", s)
+    if m and m.group(2) in BULAN and konteks is not None:
+        return aman(konteks.year, BULAN[m.group(2)], int(m.group(1))), s[:m.start()] + " " + s[m.end():]
+    m = re.search(r"\b(?:tanggal|tgl|tnggl|tanggl|tngl|tggl)\s*(\d{1,2})\b", s)
+    if m and konteks is not None:
+        return aman(konteks.year, konteks.month, int(m.group(1))), s[:m.start()] + " " + s[m.end():]
+    return None, s
+
+
+def _nama_bagian(s: str) -> str | None:
+    """Bagian yang disebut dalam teks (huruf kecil). "Bar kitchen" adalah sebutan lain bar belakang."""
+    if re.search(r"bar\s*\(?\s*depan", s):
+        return BAGIAN["bar depan"]
+    if re.search(r"bar\s*\(?\s*(belakang|kitchen)", s):
+        return BAGIAN["bar belakang"]
+    if "kitchen" in s:
+        return BAGIAN["kitchen"]
+    if re.search(r"\bwaiters?\b", s):
+        return BAGIAN["waiters"]
+    if re.search(r"\bbar\b", s):
+        return BAGIAN["bar depan"]            # "orderan bar", "barang masuk bar lafabrica": bar kopi di depan
+    return None
+
+
+def _judul(baris: str, konteks: date | None = None) -> dict | None:
+    """Baris judul laporan: "REPORT ORDER tanggal 5- november-2026", "Barang masuk hari ini tnggl 5 nov 2026",
+    "Orderan bar kitchen tgl 9", "Order bar depan 9/11/26", "Orderan kitchen lafabrica:", "*Belanja frozen*".
+
+    Mengembalikan jenis, tanggal (None bila tidak ditulis), bagian, dan penanda judul baku/daftar belanja; None
+    bila baris bukan judul (mis. baris barang)."""
+    s = re.sub(r"[*#•_]+", " ", baris.lower()).strip(" -:\t")
+    m = _RE_JUDUL.match(s)
+    if not m:
+        return None
+    kata, sisa = re.sub(r"\s+", " ", m.group(1)), m.group(2)
+    tgl, sisa_teks = _tanggal_dari(sisa, konteks)
+    lain = [k for k in re.findall(r"[a-z]+", sisa_teks) if k not in _KATA_JUDUL]
+    belanja = kata == "belanja"
+    if re.search(r"\d", sisa_teks) or len(lain) > (2 if belanja else 0):
+        return None                                           # masih ada angka atau kata lain: baris barang
+    return {"jenis": "masuk" if kata == "barang masuk" else "order", "tanggal": tgl, "bagian": _nama_bagian(sisa),
+            "baku": kata == "report order", "belanja": belanja}
+
+
 def pisah_laporan(teks: str) -> list[Laporan]:
-    """Memisahkan teks tempelan menjadi laporan order dan barang masuk sesuai urutan kemunculan."""
-    teks = teks.replace("\r\n", "\n")
+    """Memisahkan teks tempelan menjadi laporan order dan barang masuk sesuai urutan kemunculan.
+
+    Laporan baru dimulai oleh baris judul (lihat _judul). Di dalam satu laporan, judul sejenis yang tanpa tanggal
+    atau bertanggal sama hanyalah sub-judul bagian. Pada teks WhatsApp yang diteruskan, judul di awal pesan selalu
+    memulai laporan baru. Order yang judulnya tanpa tanggal memakai tanggal laporan sebelumnya."""
+    teks = teks.replace("\r\n", "\n").replace("\r", "\n")
+    teks = re.sub("[⁠​‎‏﻿]", "", teks)
     teks = re.sub(r"(?i)(?<!\n)(REPORT ORDER tanggal|barang masuk hari ini tanggal)", r"\n\1", teks)
-    hasil = []
-    pola = re.compile(r"(?im)^(REPORT ORDER tanggal\s*(\d{1,2})\s*-\s*([a-z]+)\s*-\s*(\d{4})"
-                      r"|barang masuk hari ini tanggal\s*(\d{1,2})\s*-?\s*([a-z]+)\s*-?\s*(\d{4}))")
-    posisi = [(m.start(), m) for m in pola.finditer(teks)]
-    for i, (awal, m) in enumerate(posisi):
-        akhir = posisi[i + 1][0] if i + 1 < len(posisi) else len(teks)
-        if m.group(2):
-            jenis, tgl = "order", _tanggal(m.group(2), m.group(3), m.group(4))
-        else:
-            jenis, tgl = "masuk", _tanggal(m.group(5), m.group(6), m.group(7))
-        isi = teks[m.end():akhir]
-        hasil.append(Laporan(jenis, tgl, i + 1, isi, tanggal=tgl))
+    hasil: list[Laporan] = []
+    isi: list[list[str]] = []
+    terakhir = None                                   # tanggal laporan terakhir (konteks tanggal yang tidak lengkap)
+    for baris in teks.split("\n"):
+        m = _RE_WA.match(baris)
+        awal_pesan = bool(m)
+        if m:
+            baris = baris[m.end():]
+        j = _judul(baris, terakhir)
+        if j:
+            kini = hasil[-1] if hasil else None
+            sub = (kini is not None and not awal_pesan and not j["baku"] and not j["belanja"] and not kini.belanja
+                   and j["jenis"] == kini.jenis and j["tanggal"] in (None, kini.tanggal_tertulis))
+            tgl = j["tanggal"] or terakhir
+            if not sub and tgl is not None:
+                lp = Laporan(j["jenis"], tgl, len(hasil) + 1, "", tanggal=tgl, bagian=j["bagian"], belanja=j["belanja"])
+                if j["tanggal"] is None:
+                    lp.catatan = f"Tanggal tidak ditulis; dianggap {tgl:%d-%m-%Y} mengikuti laporan sebelumnya."
+                if j["belanja"]:
+                    lp.catatan = (lp.catatan + " " if lp.catatan else "") + (
+                        "Daftar belanja: dicatat sebagai order, bukan barang masuk, supaya barang yang juga ditulis di "
+                        "laporan barang masuk tidak terhitung dua kali.")
+                hasil.append(lp)
+                isi.append([])
+                terakhir = tgl
+                continue
+        if hasil:
+            isi[-1].append(baris)
+    for lp, b in zip(hasil, isi):
+        lp.teks = "\n".join(b)
     return hasil
 
 
@@ -340,7 +494,10 @@ def koreksi_tanggal_order(laporan: list[Laporan]) -> list[Laporan]:
     """Order dengan tanggal tertulis ganda: order dikirim besoknya, jadi order yang isinya cocok dengan barang
     masuk hari H dianggap order hari H-1. Order lain dengan tanggal sama tidak diubah."""
     order = [lp for lp in laporan if lp.jenis == "order"]
-    masuk = {lp.tanggal_tertulis: lp for lp in laporan if lp.jenis == "masuk"}
+    masuk = {}                                         # tanggal -> SKU barang masuk (bisa dari beberapa laporan)
+    for lp in laporan:
+        if lp.jenis == "masuk":
+            masuk.setdefault(lp.tanggal_tertulis, set()).update(b["sku"] for b in lp.baris if b.get("sku"))
     per_tgl = {}
     for lp in order:
         per_tgl.setdefault(lp.tanggal_tertulis, []).append(lp)
@@ -350,11 +507,10 @@ def koreksi_tanggal_order(laporan: list[Laporan]) -> list[Laporan]:
         tgl_lain = {lp.tanggal_tertulis for lp in order}
         for lp in daftar:
             kemarin = tgl - timedelta(days=1)
-            m = masuk.get(tgl)
-            if kemarin in tgl_lain or m is None:
+            sku_m = masuk.get(tgl)
+            if kemarin in tgl_lain or sku_m is None or lp.belanja:
                 continue
             sku_o = {b["sku"] for b in lp.baris if b.get("sku")}
-            sku_m = {b["sku"] for b in m.baris if b.get("sku")}
             if sku_o and len(sku_o & sku_m) / len(sku_o) >= 0.6:
                 lp.tanggal = kemarin
                 lp.catatan = (f"Tertulis {tgl:%d-%m-%Y}, tetapi isinya cocok dengan barang masuk {tgl:%d-%m-%Y}; "
@@ -368,19 +524,16 @@ _KARYAWAN = re.compile(r"kar[iy]?a?w")     # karyawan, karywan, karyawam, mkn ka
 
 
 def _bagian(baris: str) -> str | None:
+    """Baris judul bagian: "*bar (depan) lafabrica* :", "# Bar kitchen lafabrica#", "*mkan karywan*"."""
     s = baris.lower()
     karyawan = bool(_KARYAWAN.search(s)) and len(re.findall(r"[a-z]+", s)) <= 4
-    if not s.strip().startswith("*") and "lafabrica" not in s and not karyawan:
-        return None
     if karyawan:
         return BAGIAN["makan karyawan"]
-    if "bar (depan)" in s or "bar depan" in s:
-        return BAGIAN["bar depan"]
-    if "bar (belakang)" in s or "bar belakang" in s:
-        return BAGIAN["bar belakang"]
-    if "kitchen" in s:
-        return BAGIAN["kitchen"]
-    return None
+    if not s.strip().startswith(("*", "#")) and "lafabrica" not in s:
+        return None
+    if re.search(r"\d", s):
+        return None                               # "* gas 4 tbung (1 tabung sama bar kitchen)" adalah baris barang
+    return _nama_bagian(s)
 
 
 def normalkan_nama(nama: str) -> str:
@@ -396,7 +549,10 @@ def urai_baris(teks: str) -> dict:
     """Satu baris barang -> nama, jumlah, satuan, isi per satuan (dari tanda kurung), keterangan."""
     asli = teks.strip()
     s = re.sub(r"^[\-\*•\s]+", "", asli)
+    s = re.sub(r"^\d{1,2}[.)]\s+", "", s)                       # nomor urut daftar: "3. Timun 3 kg"
     s = s.replace("⁶", "").replace("¹/²", " 1/2")
+    s = re.sub(r"(?i)\b(\d{1,3})\.(\d{3})(?=\s*(?:gr|g|gram|ml)\b)", r"\1\2", s)   # "1.585 gr" = 1585 g
+    s = re.sub(r"(?i)\b0ns\b", "ons", s)                       # "1 0ns" -> "1 ons"
     s = re.sub(r"(?i)\bs(\d)", r"\1", s)                       # "s1bks" -> "1bks"
     ragu = []
     if re.search(r"(?i)\d\s*/\s+kg", s):                       # "Tomat 1/ kg": pecahan tidak lengkap
@@ -438,6 +594,12 @@ def urai_baris(teks: str) -> dict:
         mk = _RE_JUMLAH.search(k.lower())
         if not mk:
             continue
+        if out["satuan"] in WADAH and SATUAN.get(mk.group(2) or "") not in BERAT:
+            # "1 dus( 6 bks 13 liter)": yang dipakai berat isi wadahnya, bukan banyaknya bungkus di dalamnya
+            berat = [c for c in _RE_JUMLAH.finditer(k.lower()) if SATUAN.get(c.group(2) or "") in BERAT]
+            if berat:
+                mk = berat[-1]
+                out["keterangan"] = "; ".join(x for x in (out["keterangan"], k.strip()) if x)
         if re.fullmatch(r"\s*\d+(?:[.,]\d+)?\s*gram\s*", k.lower()) and out["jumlah"] is not None:
             # gaya catatan bar belakang: "bubuk kopi 2 bks ( 2000 gram )" = berat total
             out["keterangan"] = "; ".join(x for x in (f"{out['jumlah']:g} {out['satuan']}", out["keterangan"]) if x)
@@ -453,6 +615,7 @@ def urai_baris(teks: str) -> dict:
         elif out["satuan"] in BERAT and sk not in BERAT:          # 760gr (1botol): ukuran x banyaknya
             out["isi"], out["satuan_isi"] = out["jumlah"], out["satuan"]
             out["jumlah"], out["satuan"] = n, sk
+            out["berat_dulu"] = True                              # berat ditulis dulu: bisa juga berarti berat total
         elif sk in BERAT and out["satuan"] not in BERAT:          # 2bks(200gr): banyaknya x ukuran
             out["isi"], out["satuan_isi"] = n, sk
         elif sk in ("potong",):
@@ -464,7 +627,7 @@ def urai_baris(teks: str) -> dict:
 
 
 def urai_laporan(lp: Laporan) -> list[dict]:
-    bagian = None
+    bagian = lp.bagian
     rows = []
     for baris in lp.teks.splitlines():
         b = baris.strip()
@@ -473,7 +636,10 @@ def urai_laporan(lp: Laporan) -> list[dict]:
         bg = _bagian(b)
         if bg:
             bagian = bg
-            rest = re.split(r"\*\s*:?", b, maxsplit=2)
+            continue
+        j = _judul(b, lp.tanggal_tertulis)
+        if j:                                                 # sub-judul: "Orderan bar kitchen", "orderan waiters :"
+            bagian = j["bagian"] or bagian
             continue
         low = b.lower()
         if low.startswith("noted"):
@@ -489,10 +655,53 @@ def urai_laporan(lp: Laporan) -> list[dict]:
         if not r["nama"] and r["jumlah"] is None:
             continue
         r.update({"jenis": lp.jenis, "tanggal": lp.tanggal, "tanggal_tertulis": lp.tanggal_tertulis,
-                  "laporan": lp.urutan, "bagian": bagian or "Tidak diketahui"})
+                  "laporan": lp.urutan, "bagian": bagian or TIDAK_DIKETAHUI})
+        if lp.belanja:
+            r["keterangan"] = "; ".join(x for x in (KET_BELANJA, r["keterangan"]) if x)
         rows.append(r)
     lp.baris = rows
     return rows
+
+
+KET_BELANJA = "daftar belanja"
+
+
+def tebak_bagian(rows: list[dict]) -> str | None:
+    """Bagian untuk daftar yang judul bagiannya tidak ditulis (mis. "Barang masuk hari ini tnggl 8 november 2026"
+    langsung diikuti barang kitchen): kelompok bagian yang paling banyak mengenali nama barangnya."""
+    suara = {}
+    for r in rows:
+        nn = normalkan_nama(r["nama"])
+        for (pola, *_), kelompok in zip(ALIAS, _KELOMPOK_ALIAS):
+            if re.search(pola, nn):
+                if kelompok:
+                    suara[kelompok] = suara.get(kelompok, 0) + 1
+                break
+    if not suara:
+        return None
+    urut = sorted(suara.items(), key=lambda kv: -kv[1])
+    return urut[0][0] if len(urut) == 1 or urut[0][1] > urut[1][1] else None
+
+
+def buang_kiriman_ulang(laporan: list[Laporan]) -> None:
+    """Laporan yang dikirim ulang (jenis dan tanggal sama, isi satu bagian sama persis) tidak dihitung dua kali:
+    bagian yang sama persis dengan bagian itu di laporan sebelumnya dibuang dari laporan yang lebih baru."""
+    terlihat = {}                                             # (jenis, tanggal, bagian, isi) -> nomor laporan
+    for lp in laporan:
+        per_bagian = {}
+        for r in lp.baris:
+            per_bagian.setdefault(r["bagian"], []).append(r)
+        buang = {}
+        for bg, rows in per_bagian.items():
+            kunci = (lp.jenis, lp.tanggal_tertulis, bg, tuple(re.sub(r"\s+", " ", r["teks"].lower()).strip() for r in rows))
+            if kunci in terlihat:
+                buang[bg] = terlihat[kunci]
+            else:
+                terlihat[kunci] = lp.urutan
+        if buang:
+            lp.baris = [r for r in lp.baris if r["bagian"] not in buang]
+            ket = ", ".join(f"{bg} (sama dengan laporan no. {n})" for bg, n in buang.items())
+            lp.catatan = (lp.catatan + " " if lp.catatan else "") + f"Kiriman ulang, tidak dihitung dua kali: {ket}."
 
 
 @dataclass
@@ -564,6 +773,10 @@ def ke_satuan_dasar(sku: str, r: dict, M: Master):
         # "Cabe caplak 1/4", "Wortel 1/4": pecahan tanpa satuan di kitchen ditulis dalam kg
         q, konv, a = ke_satuan_dasar(sku, {**r, "satuan": "kg"}, M)
         return q, konv, "; ".join(x for x in ("angka pecahan tanpa satuan dianggap kg", a) if x)
+    if sat == "tanpa satuan" and n <= 25 and berat_dasar and r.get("bagian") in ("Kitchen", "Makan karyawan"):
+        # "Beras 10": angka kecil tanpa satuan untuk bahan yang ditimbang ditulis dalam kg, bukan gram
+        q, konv, a = ke_satuan_dasar(sku, {**r, "satuan": "kg"}, M)
+        return q, konv, "; ".join(x for x in ("angka tanpa satuan dianggap kg", a) if x)
     isi, sat_isi = r.get("isi"), r.get("satuan_isi")
     k_master = M.konversi.get((sku, sat))
     a_tabel = ISI_ASUMSI.get((sku, sat))
@@ -578,10 +791,28 @@ def ke_satuan_dasar(sku: str, r: dict, M: Master):
     if isi is not None and sat_isi in BERAT and berat_dasar:
         ukuran = isi * BERAT[sat_isi]
         if sat in WADAH:
+            if not r.get("berat_dulu"):
+                # "1 dus (6 bks 13 liter)": tanda kurung menjelaskan isi wadahnya
+                beda = (f"isi 1 {sat} tertulis {isi:g} {sat_isi} di catatan; data bahan mencatat {k_master:,.0f} g"
+                        if k_master and abs(k_master - ukuran) > 1e-6 else "")
+                return n * ukuran, f"{n:g} {sat} x {ukuran:g} g (isi tertulis di catatan)", beda
             if k_master and k_master > ukuran:
                 return (n * k_master, f"{n:g} {sat} x {k_master:,.0f} g (data bahan)",
                         f"catatan menulis {isi:g} {sat_isi} per {sat}; dipakai isi {sat} dari data bahan")
             return dari_tabel()
+        isi_biasa = k_master or (a_tabel[0] if a_tabel else None)
+        ragu_total = n > 1 and r.get("berat_dulu")
+        if ragu_total and isi_biasa:
+            # "Totole 80gr(2bks)": bar menulis ukuran x banyaknya, kitchen kadang menulis berat total (banyaknya).
+            # Dipilih bacaan yang paling dekat dengan isi kemasan yang biasa.
+            harap = n * isi_biasa
+            if abs(ukuran - harap) < abs(n * ukuran - harap):
+                return ukuran, f"{ukuran:g} g ({n:g} {sat})", (
+                    f"tertulis {isi:g} {sat_isi} ({n:g} {sat}): dibaca berat total karena 1 {sat} biasanya "
+                    f"{isi_biasa:g} g")
+        if ragu_total and r.get("bagian") == "Kitchen":
+            return n * ukuran, f"{n:g} {sat} x {ukuran:g} g", (
+                f"tertulis {isi:g} {sat_isi} ({n:g} {sat}): dibaca {n:g} x {ukuran:g} g; cek apakah itu berat total")
         return n * ukuran, f"{n:g} {sat} x {ukuran:g} g", ""
     if sat in BERAT and berat_dasar:
         return n * BERAT[sat], (f"{n:g} {sat} = {n * BERAT[sat]:g} g" if sat != "g" else ""), ""
@@ -659,10 +890,20 @@ def petakan(rows: list[dict], M: Master) -> pd.DataFrame:
 def rapikan(teks: str, M: Master) -> tuple[pd.DataFrame, list[Laporan]]:
     """Teks catatan -> tabel baris terstruktur (order dan barang masuk) dan daftar laporan."""
     laporan = pisah_laporan(teks)
-    semua = []
     for lp in laporan:
         rows = urai_laporan(lp)
-        df = petakan(rows, M)
+        tanpa = [r for r in rows if r["bagian"] == TIDAK_DIKETAHUI]
+        if tanpa:
+            bg = tebak_bagian(tanpa)
+            if bg:
+                for r in tanpa:
+                    r["bagian"] = bg
+                lp.catatan = (lp.catatan + " " if lp.catatan else "") + (
+                    f"Bagian tidak ditulis; dianggap {bg} dari isi barangnya.")
+    buang_kiriman_ulang(laporan)
+    semua = []
+    for lp in laporan:
+        df = petakan(lp.baris, M)
         lp.baris = df.to_dict("records")
         semua.append(df)
     koreksi_tanggal_order(laporan)
@@ -681,7 +922,9 @@ def rekap_masuk(df: pd.DataFrame) -> pd.DataFrame:
 
 def order_vs_masuk(df: pd.DataFrame) -> pd.DataFrame:
     """Order hari H dibandingkan barang masuk hari H+1 per SKU."""
-    o = df[(df["jenis"] == "order") & df["sku"].notna()].copy()
+    belanja = (df["keterangan"].fillna("").astype(str).str.startswith(KET_BELANJA) if "keterangan" in df
+               else pd.Series(False, index=df.index))
+    o = df[(df["jenis"] == "order") & df["sku"].notna() & ~belanja].copy()
     m = df[(df["jenis"] == "masuk") & df["sku"].notna()].copy()
     o["tanggal_tiba"] = o["tanggal"].map(lambda d: d + timedelta(days=1))
     og = o.groupby(["tanggal", "tanggal_tiba", "sku", "nama_bahan"], as_index=False).agg(

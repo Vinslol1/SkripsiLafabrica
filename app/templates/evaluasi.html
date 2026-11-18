@@ -21,6 +21,65 @@
   </div>
 </div>
 
+{% set pm = ev.pemilihan %}
+{% if pm %}
+{% set at = pm.aturan %}
+<div class="kartu" style="margin-top:18px" id="pemilihan">
+  <div class="kartu-kepala"><h2>Praproses: bahan yang dipakai dan {{ pm.target | length }} bahan target</h2></div>
+  <div class="kartu-isi kecil">
+    Pemilihan dihitung dari data sebelum periode uji (s.d. {{ at.data_sampai | tgl }}, {{ at.n_hari }} hari), supaya data uji tidak ikut menentukan bahan yang diteliti.
+    <b>Tahap 1, saringan data:</b> bahan yang kosong (tidak pernah terpakai) dan bahan yang didominasi nilai 0 dikeluarkan. Batasnya ADI &gt; {{ at.adi_maks | angka(2) }}
+    (rata-rata jarak antarhari pemakaian), artinya pemakaian 0 pada lebih dari {{ at.proporsi_nol_maks | persen(1) }} hari; ini batas pola permintaan intermiten menurut Syntetos, Boylan &amp; Croston (2005).
+    <b>Tahap 2, bahan target:</b> dari bahan yang lolos diambil bahan cepat rusak (masa simpan &le; {{ at.masa_simpan_maks }} hari, bukan {{ at.kelompok_dikecualikan | join(", ") }}),
+    lalu diurutkan menurut rata-rata dua peringkat: seberapa sering dipakai dan seberapa besar nilai pemakaiannya per hari (rata-rata pemakaian × harga satuan).
+    {{ at.jumlah_target }} teratas menjadi bahan target{% if at.target_dikunci %}; daftarnya dikunci di config.py supaya tidak bergeser ketika data bertambah{% endif %}.
+    {% if at.cakupan_model == "target" %}Model hanya dilatih dan diuji pada bahan target.{% else %}Model dilatih pada semua bahan yang lolos saringan; hasil utama dilaporkan untuk bahan target.{% endif %}
+    {% if pm.beda_dari_otomatis %}<br><b>Catatan:</b> daftar yang dikunci berbeda dari peringkat data ini untuk: {{ pm.beda_dari_otomatis | join(", ") }}.{% endif %}
+  </div>
+  <div class="grid empat" style="padding:0 22px 18px">
+    <div class="kartu statistik"><span class="label">Bahan di data stok keluar</span><span class="nilai">{{ pm.n_data }}</span><span class="bawah">semua bahan yang punya resep</span></div>
+    <div class="kartu statistik"><span class="label">Dikeluarkan</span><span class="nilai">{{ pm.n_kosong + pm.n_banyak_nol }}</span><span class="bawah">{{ pm.n_kosong }} kosong, {{ pm.n_banyak_nol }} banyak nilai 0</span></div>
+    <div class="kartu statistik"><span class="label">Lolos saringan data</span><span class="nilai">{{ pm.n_lolos }}</span><span class="bawah">{{ pm.n_layak }} di antaranya cepat rusak</span></div>
+    <div class="kartu statistik hijau"><span class="label">Bahan target</span><span class="nilai">{{ pm.target | length }}</span><span class="bawah">{{ pm.n_dimodelkan }} bahan dimodelkan</span></div>
+  </div>
+  <div class="tabel-wadah">
+  <table class="tabel rapat">
+    <thead><tr><th>#</th><th>Bahan target</th><th>Kategori</th><th class="angka">Masa simpan</th><th class="angka">Hari terpakai</th><th class="angka">Hari bernilai 0</th>
+      <th class="angka">Rata-rata/hari</th><th class="angka">Nilai pemakaian/hari</th><th class="angka">Peringkat frekuensi</th><th class="angka">Peringkat nilai</th><th class="angka">Skor</th></tr></thead>
+    <tbody>{% for r in pm.tabel if r.target %}<tr>
+      <td>{{ r.peringkat | int if r.peringkat is not none else "-" }}</td><td>{{ r.nama }} <span class="kecil">{{ r.sku }}</span></td><td>{{ r.kategori }}</td>
+      <td class="angka">{{ r.masa_simpan | int }} hari</td><td class="angka">{{ r.hari_terpakai }} / {{ at.n_hari }}</td><td class="angka">{{ r.proporsi_nol | persen(1) }}</td>
+      <td class="angka">{{ r.rata_harian | angka_pas }} {{ (r.satuan or "") | lower }}</td><td class="angka">{{ r.nilai_harian | rupiah }}</td>
+      <td class="angka">{{ r.peringkat_frekuensi | int if r.peringkat_frekuensi is not none else "-" }}</td><td class="angka">{{ r.peringkat_nilai | int if r.peringkat_nilai is not none else "-" }}</td>
+      <td class="angka">{{ r.skor | angka(1) if r.skor is not none else "-" }}</td></tr>{% endfor %}</tbody>
+  </table>
+  </div>
+  <details class="kartu-isi">
+    <summary class="tebal">Bahan cepat rusak lain yang lolos saringan tetapi di luar {{ at.jumlah_target }} besar ({{ pm.tabel | selectattr("layak") | rejectattr("target") | list | length }} bahan)</summary>
+    <div class="tabel-wadah" style="max-height:420px;overflow:auto;margin-top:10px">
+    <table class="tabel rapat">
+      <thead><tr><th>#</th><th>Bahan</th><th>Kategori</th><th class="angka">Masa simpan</th><th class="angka">Hari bernilai 0</th><th class="angka">Nilai pemakaian/hari</th><th class="angka">Skor</th></tr></thead>
+      <tbody>{% for r in pm.tabel | selectattr("layak") | rejectattr("target") %}<tr>
+        <td>{{ r.peringkat | int if r.peringkat is not none else "-" }}</td><td>{{ r.nama }} <span class="kecil">{{ r.sku }}</span></td><td>{{ r.kategori }}</td><td class="angka">{{ r.masa_simpan | int }} hari</td>
+        <td class="angka">{{ r.proporsi_nol | persen(1) }}</td><td class="angka">{{ r.nilai_harian | rupiah }}</td><td class="angka">{{ r.skor | angka(1) if r.skor is not none else "-" }}</td></tr>{% endfor %}</tbody>
+    </table>
+    </div>
+  </details>
+  <details class="kartu-isi" style="padding-top:0">
+    <summary class="tebal">Bahan lain: lolos saringan tetapi tidak cepat rusak ({{ pm.n_lolos - pm.n_layak }}) dan yang dikeluarkan saringan ({{ pm.n_kosong + pm.n_banyak_nol }})</summary>
+    <div class="tabel-wadah" style="max-height:420px;overflow:auto;margin-top:10px">
+    <table class="tabel rapat">
+      <thead><tr><th>Bahan</th><th>Kategori</th><th class="angka">Masa simpan</th><th class="angka">Hari bernilai 0</th><th class="angka">ADI</th><th>Keterangan</th></tr></thead>
+      <tbody>{% for r in pm.tabel | rejectattr("layak") %}<tr>
+        <td>{{ r.nama or r.sku }} <span class="kecil">{{ r.sku }}</span></td><td>{{ r.kategori or "-" }}</td><td class="angka">{{ (r.masa_simpan | int ~ " hari") if r.masa_simpan is not none else "-" }}</td>
+        <td class="angka">{{ r.proporsi_nol | persen(1) }}</td><td class="angka">{{ r.adi | angka(2) if r.adi is not none else "-" }}</td>
+        <td>{% if r.lolos %}<span class="status abu">lolos, bukan bahan cepat rusak</span>{% else %}<span class="status kuning">{{ r.alasan.split(":")[0] }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
+    </table>
+    </div>
+  </details>
+</div>
+{% endif %}
+
 <div class="grid empat" style="margin-top:18px">
   <div class="kartu statistik hijau"><span class="label">nRMSE median XGBoost</span><span class="nilai">{{ x["nRMSE median"] | angka(3) }}</span>
     <span class="bawah">MA-7: {{ ma["nRMSE median"] | angka(3) }} (lebih kecil lebih baik)</span></div>

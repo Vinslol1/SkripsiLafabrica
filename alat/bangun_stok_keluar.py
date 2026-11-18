@@ -1,7 +1,8 @@
 """Stok keluar harian per bahan baku = transaksi penjualan majoo x resep produk (pra-pemrosesan data).
 
-    python alat/bangun_stok_keluar.py --sampai 2026-11-02 \
-        data_awal/penjualan/Uptodate_25_oktober.xlsx data_awal/penjualan/detil_penjualan_2026_11_03.xlsx
+    python alat/bangun_stok_keluar.py --sampai 2026-11-10 \
+        data_awal/penjualan/Uptodate_25_oktober.xlsx data_awal/penjualan/detil_penjualan_2026_11_03.xlsx \
+        data_awal/penjualan/detil_penjualan_2026_11_11.xlsx
 
 File transaksi = ekspor Detail Penjualan majoo (header tabel boleh di bawah judul laporan), boleh lebih dari satu.
 Bila satu tanggal ada di beberapa file, transaksi tanggal itu diambil dari file yang disebut paling akhir.
@@ -173,9 +174,25 @@ for k, (nama, d) in enumerate(files):
         x = d[d['Tanggal'].isin(sama_tgl)].groupby('No Transaksi')['Produk'].agg(lambda v: sorted(map(str, v)))
         y = d2[d2['Tanggal'].isin(sama_tgl)].groupby('No Transaksi')['Produk'].agg(lambda v: sorted(map(str, v)))
         beda = sorted(set(x.index) ^ set(y.index)) + [n for n in set(x.index) & set(y.index) if x[n] != y[n]]
+        # Hari terakhir file lama biasanya belum selesai saat diekspor: transaksi yang bertambah atau berubah pada
+        # hari itu wajar. Perbedaan pada tanggal lain yang perlu dicek.
+        tgl_trx = {**d.drop_duplicates('No Transaksi').set_index('No Transaksi')['Tanggal'].to_dict(),
+                   **d2.drop_duplicates('No Transaksi').set_index('No Transaksi')['Tanggal'].to_dict()}
+        akhir_lama = d['Tanggal'].max()
+        beda_akhir = [n for n in beda if tgl_trx[n] == akhir_lama]
+        beda_lain = [n for n in beda if tgl_trx[n] != akhir_lama]
+        if not beda:
+            ket = "nomor transaksi dan menu sama"
+        else:
+            bag = []
+            if beda_akhir:
+                bag.append(f"{akhir_lama:%d/%m} belum lengkap di {nama} (diekspor pukul {d['Waktu'].max():%H:%M}), "
+                           f"{len(beda_akhir)} transaksi hari itu bertambah atau berubah")
+            bag.append(f"PERLU DICEK, {len(beda_lain)} transaksi berbeda pada tanggal lain" if beda_lain
+                       else "tanggal lain sama")
+            ket = "; ".join(bag)
         tumpang.append(f"{sama_tgl[0]:%d/%m} - {sama_tgl[-1]:%d/%m} ada di {nama} dan {nama2} ({len(y)} transaksi): "
-                       + ("nomor transaksi dan menu sama" if not beda else f"PERLU DICEK, {len(beda)} transaksi berbeda")
-                       + f"; dipakai {nama2}")
+                       + ket + f"; dipakai {nama2}")
 semua = pd.concat([d.assign(_file=nama) for nama, d in files], ignore_index=True)
 semua = semua[[sumber_tgl[pd.Timestamp(tg)] == f for tg, f in zip(semua['Tanggal'], semua['_file'])]]
 n_sebelum = int((semua['Tanggal'] < MULAI).sum())

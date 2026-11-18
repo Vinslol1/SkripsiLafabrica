@@ -31,6 +31,13 @@ def _t(s, db):
         return RK.tanggal_keputusan_bawaan(db)
 
 
+def _pemilihan(db):
+    """Ringkasan praproses bahan target dari model aktif (None untuk model lama)."""
+    model = MA.ambil(db)
+    ev = model.evaluasi() if model else None
+    return (ev or {}).get("pemilihan")
+
+
 @router.get("")
 def halaman(request: Request, tanggal: str = "", filter: str = "perlu", q: str = "", kategori: str = "",
             db: Session = Depends(get_db)):
@@ -65,7 +72,7 @@ def halaman(request: Request, tanggal: str = "", filter: str = "perlu", q: str =
                   filter=filter, filter_list=FILTER, q=q, kategori=kategori, kategori_list=kategori_list,
                   sudah_dipesan=sudah, total_nilai=total_nilai, hari_ini=date.today(), t_tiba=t + timedelta(days=1),
                   n_kritis=q_t.filter(Rekomendasi.kritis.is_(True)).count(),
-                  n_perlu=q_t.filter(Rekomendasi.jumlah > 0).count())
+                  n_perlu=q_t.filter(Rekomendasi.jumlah > 0).count(), pemilihan=_pemilihan(db))
 
 
 @router.post("/hitung")

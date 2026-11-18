@@ -1,4 +1,8 @@
-"""Alur pelatihan dan pengujian lengkap: XGBoost -> ROP dinamis -> Q-Learning -> simulasi K1/K2/K3.
+"""Alur pelatihan dan pengujian lengkap: praproses cakupan bahan -> XGBoost -> ROP dinamis -> Q-Learning ->
+simulasi K1/K2/K3.
+
+Praproses (ml/praproses.py) mengeluarkan bahan yang kosong atau didominasi nilai 0, lalu menetapkan bahan target
+penelitian. Model hanya dilatih dan diuji pada bahan yang dimodelkan (bawaan: bahan target).
 
 Selain uji 28 hari (K1 statis, K2, K3), bila ada catatan barang masuk cafe yang beririsan dengan periode uji,
 barang yang benar-benar diterima diputar ulang sebagai K1 aktual dan dibandingkan dengan K1 statis, K2, dan K3
@@ -19,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 import config as C
+from ml import praproses as PR
 from ml import rincian as RC
 from ml import simulasi as SIM
 from ml.kebijakan import tepi_bin
@@ -108,13 +113,14 @@ MIN_HARI_AKTUAL = 7          # di bawah ini hasil K1 aktual ditandai belum layak
 
 
 def evaluasi_aktual(masuk: dict | None, sp: dict, skus: list, par: dict, d_test, yh1, yh2, agen, n_seed: int,
-                    log=print, bahan_data=None) -> dict:
+                    log=print) -> dict:
     """K1 aktual: barang yang benar-benar diterima cafe diputar ulang pada lingkungan simulasi yang sama.
 
     masuk : {"baris": DataFrame tanggal, sku, jumlah (satuan dasar, NaN = belum diketahui),
              "hari": tanggal yang punya laporan barang masuk}
     Periode = hari berurutan berlaporan di dalam periode uji. Bahan yang diuji = bahan yang dimodelkan dan punya
     barang masuk tercatat di periode itu; bahan dengan barang masuk yang jumlahnya belum diketahui dikecualikan.
+    Barang masuk untuk bahan yang tidak dimodelkan (di luar bahan target) hanya dihitung jumlah bahannya.
     K1 statis, K2, dan K3 dijalankan ulang pada hari dan bahan yang sama dari stok awal yang sama:
       - skenario utama: taksiran stok awal aktual (stok terkecil agar barang masuk aktual cukup untuk pemakaian
         aktual, karena pemakaian di stok keluar benar-benar terjadi), dan
@@ -137,12 +143,10 @@ def evaluasi_aktual(masuk: dict | None, sp: dict, skus: list, par: dict, d_test,
     b["tanggal"] = pd.to_datetime(b["tanggal"])
     b = b[(b["tanggal"] >= jendela[0]) & (b["tanggal"] <= jendela[-1])]
     pos = {s: i for i, s in enumerate(skus)}
-    pakai, dikecualikan = [], []
+    pakai, dikecualikan, n_luar = [], [], 0
     for sku, g in b.groupby("sku"):
         if sku not in pos:
-            ada = bahan_data is not None and sku in set(bahan_data)
-            dikecualikan.append({"sku": sku, "alasan": "tidak dimodelkan (belum terpakai pada periode latih)" if ada
-                                 else "tidak ada di data stok keluar"})
+            n_luar += 1
         elif g["jumlah"].isna().any():
             dikecualikan.append({"sku": sku, "alasan": "jumlah barang masuk belum diketahui (isi kemasan)"})
         else:
@@ -150,7 +154,8 @@ def evaluasi_aktual(masuk: dict | None, sp: dict, skus: list, par: dict, d_test,
     d_win = d_test[:, t0:t0 + T]
     tanpa_masuk = [s for i, s in enumerate(skus) if s not in set(b["sku"]) and d_win[i].sum() > 0]
     dasar.update({"periode": [str(jendela[0].date()), str(jendela[-1].date())], "n_hari": T,
-                  "dikecualikan": dikecualikan, "n_tanpa_masuk": len(tanpa_masuk)})
+                  "dikecualikan": dikecualikan, "n_tanpa_masuk": len(tanpa_masuk), "tanpa_masuk": tanpa_masuk,
+                  "n_luar_cakupan": n_luar})
     if not pakai:
         return {**dasar, "status": "tidak ada bahan", "pesan": "Tidak ada bahan dengan barang masuk yang bisa dipakai."}
     idx = np.array([pos[s] for s in pakai])
@@ -167,7 +172,7 @@ def evaluasi_aktual(masuk: dict | None, sp: dict, skus: list, par: dict, d_test,
                         varian=VARIAN_AKTUAL, indeks_agen=idx, n_agen=len(skus), stok_awal_tetap=s0, harian=harian)
     runs["sku"] = [pakai[i] for i in runs["b"]]
     log(f"K1 aktual: {T} hari ({jendela[0]:%d/%m} s.d. {jendela[-1]:%d/%m}), {len(pakai)} bahan dengan barang masuk "
-        f"tercatat, {len(dikecualikan)} bahan dikecualikan")
+        f"tercatat, {len(dikecualikan)} bahan dikecualikan, {len(tanpa_masuk)} bahan tanpa barang masuk tercatat")
     return {**dasar, "status": "ok", "skus": pakai, "runs": runs, "q": Q, "stok_awal": s0, "pakai": d_pakai,
             "hari": [str(h.date()) for h in jendela], "harian": harian}
 
@@ -183,8 +188,21 @@ def jalankan(long: pd.DataFrame, master: pd.DataFrame, biaya: dict = None, tunin
     log(f"Data {wide.index.min().date()} s.d. {wide.index.max().date()} ({len(wide)} hari, {wide.shape[1]} bahan); "
         f"latih s.d. {sp['train_end'].date()}, validasi s.d. {sp['val_end'].date()}, uji s.d. {sp['test_end'].date()}")
 
+    # ---------------- 0. praproses: saringan bahan kosong / banyak nilai 0 dan bahan target penelitian
+    pemilihan = PR.susun_pemilihan(wide, master, sp["train_end"], sp["val_end"])
+    items = [s for s in wide.columns if pemilihan.loc[s, "dimodelkan"]]
+    rp = PR.ringkas(pemilihan, sp["val_end"])
+    log(f"Praproses: {rp['n_data']} bahan di data, {rp['n_kosong']} kosong dan {rp['n_banyak_nol']} banyak nilai 0 "
+        f"dikeluarkan (ADI > {C.ADI_MAKS:g}), {rp['n_lolos']} lolos saringan, {rp['n_layak']} di antaranya cepat rusak")
+    log(f"Bahan target ({len(rp['target'])}): " + ", ".join(str(pemilihan.loc[s, 'nama']) for s in rp["target"]))
+    if rp["beda_dari_otomatis"]:
+        log("Catatan: daftar bahan target yang dikunci di config berbeda dari peringkat otomatis data ini untuk "
+            + ", ".join(rp["beda_dari_otomatis"]))
+    if not items:
+        raise ValueError("Tidak ada bahan yang lolos praproses; periksa data stok keluar dan BAHAN_TARGET di config.")
+
     # ---------------- 1. XGBoost
-    pm = PeramalXGB(wide, sp)
+    pm = PeramalXGB(wide, sp, items=items)
     res = pm.jalankan(pakai_grid_search=grid_search, best_params=best_params, log=log)
     best = res["best_params"]
     metode = res["met_val"]["metode_terbaik"] if C.PREDIKSI_INTEGRASI == "hibrida" else None
@@ -197,7 +215,8 @@ def jalankan(long: pd.DataFrame, master: pd.DataFrame, biaya: dict = None, tunin
     sig_prod = res["sigma_prod"].reindex(skus).fillna(0).values
     oos_mulai = oos["titik_latih"][0]
 
-    hasil = {"split": {k: str(v.date()) if hasattr(v, "date") else v for k, v in sp.items()}, "best_params": best}
+    hasil = {"split": {k: str(v.date()) if hasattr(v, "date") else v for k, v in sp.items()}, "best_params": best,
+             "pemilihan": pemilihan}
 
     # ---------------- 2. (opsional) pilih alpha, gamma pada periode validasi
     ql_params = ql_params or {}
@@ -242,8 +261,7 @@ def jalankan(long: pd.DataFrame, master: pd.DataFrame, biaya: dict = None, tunin
     runs = SIM.evaluasi(par, d_test, yh1, yh2, par["sigma"], agen=agen, ruang_list=par["edges"], n_seed=n_seed,
                         d_bar=par["d_bar"], harian=harian)
     runs["sku"] = [skus[b] for b in runs["b"]]
-    hasil["aktual"] = evaluasi_aktual(masuk, sp, skus, par, d_test, yh1, yh2, agen, n_seed, log=log,
-                                      bahan_data=list(wide.columns))
+    hasil["aktual"] = evaluasi_aktual(masuk, sp, skus, par, d_test, yh1, yh2, agen, n_seed, log=log)
     if hasil["aktual"]["status"] != "ok" and masuk:
         log(f"K1 aktual belum dihitung: {hasil['aktual'].get('pesan', '')}")
     hasil.update({"runs": runs, "harian": harian, "d_test": d_test, "kurva": kurva, "skus": skus, "par_uji": par,
@@ -300,17 +318,11 @@ def simpan_artefak(h: dict, master: pd.DataFrame, folder=None, log=print):
 
 
 def _bahan_utama(h, master) -> list:
-    """Bahan utama (Batasan Masalah 3): cepat rusak (masa simpan <= 30 hari) dan sering dipakai
-    (ada pemakaian pada >= 50% hari data latih+validasi), selain kelompok Air & Minuman."""
-    m = master.set_index("sku")
-    w = h["pm"].wide
-    val_end = pd.Timestamp(h["split"]["val_end"])
-    prop = (w.loc[:val_end] > 0).mean()
-    out = []
-    for s in h["skus"]:
-        if s in m.index and m.loc[s, "masa_simpan"] <= 30 and prop.get(s, 0) >= 0.5 and m.loc[s, "kategori"] != "Air & Minuman":
-            out.append(s)
-    return out
+    """Bahan utama pada laporan = bahan target penelitian (ml/praproses.py) yang dimodelkan."""
+    p = h.get("pemilihan")
+    if p is None:
+        return []
+    return [s for s in h["skus"] if s in p.index and bool(p.loc[s, "target"])]
 
 
 def _banding(runs: pd.DataFrame, skus: list, utama: list, nama: dict, varian, pasangan) -> tuple:
@@ -370,6 +382,7 @@ def ringkas_aktual(h: dict, master: pd.DataFrame, utama: list) -> dict | None:
     nama = master.set_index("sku")["nama"].to_dict()
     for x in out.get("dikecualikan", []):
         x["nama"] = nama.get(x["sku"], x["sku"])
+    out["tanpa_masuk"] = [{"sku": s, "nama": nama.get(s, s)} for s in out.get("tanpa_masuk", [])]
     if a.get("status") != "ok":
         return out
     runs = a["runs"]
@@ -404,6 +417,7 @@ def ringkasan_evaluasi(h: dict, master: pd.DataFrame) -> dict:
         "xgb_horizon": {int(k): float(v) for k, v in res["mae_h"].items()},
         "xgb_menang_ma7": int((res["met_test"]["RMSE_xgboost"] < res["met_test"]["RMSE_ma_7"]).sum()),
         "xgb_n_bahan": int(len(res["met_test"])),
+        "pemilihan": PR.ringkas(h["pemilihan"], h["split"]["val_end"]) if h.get("pemilihan") is not None else None,
         "kebijakan": uji, "bahan_utama": utama, "aktual": ringkas_aktual(h, master, utama),
         "per_bahan": tb.where(tb.notna(), None).to_dict(orient="records"),
         "kurva": {"titik": list(range(50, 50 * (len(h["kurva"]) + 1), 50)),
@@ -429,6 +443,8 @@ def tulis_laporan(h: dict, master: pd.DataFrame, folder=None, log=print):
         if res["grid"] is not None:
             res["grid"].to_excel(w, sheet_name="Grid Search", index=False)
         res["te_df"].to_excel(w, sheet_name="Prediksi Uji", index=False)
+        if h.get("pemilihan") is not None:
+            tulis_lembar_pemilihan(w, h)
     ev = ringkasan_evaluasi(h, master)
     runs = h["runs"].copy()
     runs["nama"] = runs["sku"].map(info["nama"])
@@ -461,6 +477,39 @@ def tulis_laporan(h: dict, master: pd.DataFrame, folder=None, log=print):
         if h.get("harian"):
             RC.tulis_lembar(w, h, ev, info)
     log(f"Laporan Excel tersimpan di {folder}")
+
+
+def tulis_lembar_pemilihan(w, h: dict):
+    """Lembar praproses pada laporan evaluasi: aturan, bahan target, dan tabel pemilihan semua bahan."""
+    rp = PR.ringkas(h["pemilihan"], h["split"]["val_end"])
+    a = rp["aturan"]
+    aturan = [
+        ("Data yang dipakai untuk memilih", f"latih + validasi, s.d. {a['data_sampai']} ({a['n_hari']} hari)"),
+        ("Bahan di data stok keluar", rp["n_data"]),
+        ("Dikeluarkan: kosong (tidak pernah terpakai pada periode itu)", rp["n_kosong"]),
+        (f"Dikeluarkan: banyak nilai 0 (ADI > {a['adi_maks']:g}, nilai 0 pada > {a['proporsi_nol_maks']:.1%} hari)",
+         rp["n_banyak_nol"]),
+        ("Lolos saringan data", rp["n_lolos"]),
+        (f"Layak jadi bahan target (masa simpan <= {a['masa_simpan_maks']} hari, bukan "
+         f"{', '.join(a['kelompok_dikecualikan'])})", rp["n_layak"]),
+        ("Peringkat", "rata-rata peringkat frekuensi pemakaian dan peringkat nilai pemakaian per hari (Rp)"),
+        ("Jumlah bahan target", len(rp["target"])),
+        ("Daftar bahan target dikunci di config", "ya" if a["target_dikunci"] else "tidak (otomatis)"),
+        ("Bahan yang dimodelkan", f"{rp['n_dimodelkan']} ({'bahan target saja' if a['cakupan_model'] == 'target' else 'semua bahan lolos saringan'})"),
+    ]
+    pd.DataFrame(aturan, columns=["keterangan", "nilai"]).to_excel(w, sheet_name="Aturan Pemilihan", index=False)
+    t = pd.DataFrame(rp["tabel"])
+    judul = {"sku": "SKU", "nama": "Nama", "kategori": "Kategori", "satuan": "Satuan", "masa_simpan": "Masa simpan (hari)",
+             "hari_terpakai": "Hari terpakai", "proporsi_nol": "Proporsi hari bernilai 0", "adi": "ADI",
+             "rata_harian": "Rata-rata pemakaian per hari", "harga_satuan": "Harga satuan (Rp)",
+             "sumber_harga": "Sumber harga", "nilai_harian": "Nilai pemakaian per hari (Rp)",
+             "lolos": "Lolos saringan data", "alasan": "Alasan dikeluarkan", "layak": "Layak jadi target",
+             "peringkat_frekuensi": "Peringkat frekuensi", "peringkat_nilai": "Peringkat nilai", "skor": "Skor",
+             "peringkat": "Peringkat", "target": "Bahan target", "target_otomatis": "Target menurut peringkat",
+             "dimodelkan": "Dimodelkan"}
+    for k in ("lolos", "layak", "target", "target_otomatis", "dimodelkan"):
+        t[k] = t[k].map({True: "ya", False: "tidak"})
+    t.rename(columns=judul).to_excel(w, sheet_name="Pemilihan Bahan", index=False)
 
 
 def tulis_lembar_aktual(w, h: dict, ev: dict, info: pd.DataFrame):

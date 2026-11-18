@@ -46,6 +46,18 @@ NAMA_OUTLET = "Lafabrica Coffee"
 NAMA_APLIKASI = "PrediStok"
 PENGGUNA_AWAL = ("admin", "admin123")   # wajib diganti setelah login pertama
 
+# ---------------- Praproses cakupan bahan (ml/praproses.py) ----------------
+ADI_MAKS = 1.32               # bahan dengan ADI di atas ini (nilai 0 pada > 24,2% hari) dikeluarkan dari dataset;
+                              # 1,32 = batas pola permintaan intermiten (Syntetos, Boylan & Croston, 2005)
+MASA_SIMPAN_MAKS_TARGET = 30  # bahan target harus cepat rusak: masa simpan <= 30 hari (batasan masalah)
+JUMLAH_BAHAN_TARGET = 10      # bahan target = 10 teratas menurut peringkat frekuensi dan nilai pemakaian
+# Bahan target hasil pemilihan pada data 1 Juli - 13 Oktober 2026 (latih + validasi), dikunci supaya tidak bergeser
+# ketika data bertambah. Kosongkan ([]) untuk memilih otomatis setiap pelatihan.
+BAHAN_TARGET = ["BB01", "BB02", "BB08", "ST001", "BB19", "BB18", "BB46", "BB93", "BB20", "BB132"]
+# "target" = model hanya dilatih dan diuji pada bahan target; "lolos" = pada semua bahan yang lolos saringan
+# (hasil penelitian tetap dilaporkan untuk bahan target).
+CAKUPAN_MODEL = "target"
+
 # ---------------- XGBoost (sama dengan sel PARAMETER notebook) ----------------
 SPLIT_MODE = "auto"          # auto / bulan / terakhir
 TEST_DAYS = 28

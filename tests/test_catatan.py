@@ -5,11 +5,11 @@ from datetime import date
 from conftest import pesan_kilat
 from openpyxl import load_workbook
 
-TEKS = """REPORT ORDER tanggal 5-november-2026
+TEKS = """REPORT ORDER tanggal 19-november-2026
 *Lafabrica kitchen* :
 - cumi 1kg
 - tempe 3 btng
-barang masuk hari ini tanggal 6-november-2026
+barang masuk hari ini tanggal 20-november-2026
 *Lafabrica kitchen* :
 - cumi 1000gr
 - tempe 3 btng
@@ -48,7 +48,7 @@ def test_rapikan_mencocokkan_bahan_dan_satuan(db):
     assert m.loc["sendok plastik", "status"] == CM.BUKAN_BAHAN
     assert set(CM.order_vs_masuk(df)["status"]) == {"sesuai"}
     k1a = CM.data_k1_aktual(df)
-    assert sorted(k1a["baris"]["sku"]) == ["BB111", "BB54"] and [str(h.date()) for h in k1a["hari"]] == ["2026-11-06"]
+    assert sorted(k1a["baris"]["sku"]) == ["BB111", "BB54"] and [str(h.date()) for h in k1a["hari"]] == ["2026-11-20"]
 
 
 def test_catatan_awal_tempel_unduh_koreksi_impor_hapus(admin, db):
@@ -65,7 +65,7 @@ def test_catatan_awal_tempel_unduh_koreksi_impor_hapus(admin, db):
         assert any(m.startswith("Catatan tersimpan: 3 baris barang masuk") for m in pesan_kilat(r.text)), \
             pesan_kilat(r.text)
     db.expire_all()
-    assert db.query(CatatanBarang).filter(CatatanBarang.tanggal == date(2026, 11, 6)).count() == 3
+    assert db.query(CatatanBarang).filter(CatatanBarang.tanggal == date(2026, 11, 20)).count() == 3
     # unduh Excel, koreksi baris "perlu dicek" (tempe), lalu impor kembali
     r = admin.get("/stok/catatan/unduh")
     assert r.status_code == 200 and r.content[:2] == b"PK"
@@ -73,7 +73,7 @@ def test_catatan_awal_tempel_unduh_koreksi_impor_hapus(admin, db):
     ws = wb["Barang Masuk"]
     judul = [c.value for c in ws[1]]
     for row in ws.iter_rows(min_row=2):
-        if row[0].value.date() == date(2026, 11, 6) and row[judul.index("Nama Barang")].value == "tempe":
+        if row[0].value.date() == date(2026, 11, 20) and row[judul.index("Nama Barang")].value == "tempe":
             row[judul.index("Jumlah (Satuan Dasar)")].value = 600
             row[judul.index("Status")].value = "dipakai"
     buf = io.BytesIO()
@@ -82,7 +82,7 @@ def test_catatan_awal_tempel_unduh_koreksi_impor_hapus(admin, db):
                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
     assert any(m.startswith("Catatan tersimpan") for m in pesan_kilat(r.text)), pesan_kilat(r.text)
     db.expire_all()
-    t = db.query(CatatanBarang).filter(CatatanBarang.tanggal == date(2026, 11, 6), CatatanBarang.nama == "tempe").one()
+    t = db.query(CatatanBarang).filter(CatatanBarang.tanggal == date(2026, 11, 20), CatatanBarang.nama == "tempe").one()
     assert (t.jumlah_dasar, t.status) == (600, "dipakai")
     # Excel dengan SKU yang tidak dikenal ditolak tanpa mengubah data
     ws.cell(row=2, column=judul.index("SKU") + 1, value="XX999")
@@ -92,7 +92,82 @@ def test_catatan_awal_tempel_unduh_koreksi_impor_hapus(admin, db):
                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
     assert any("XX999" in m for m in pesan_kilat(r.text))
     # hapus catatan barang masuk satu hari
-    admin.post("/stok/catatan/hapus", data={"tanggal": "2026-11-06", "jenis": "masuk"})
+    admin.post("/stok/catatan/hapus", data={"tanggal": "2026-11-20", "jenis": "masuk"})
     db.expire_all()
-    assert db.query(CatatanBarang).filter(CatatanBarang.tanggal == date(2026, 11, 6),
+    assert db.query(CatatanBarang).filter(CatatanBarang.tanggal == date(2026, 11, 20),
                                           CatatanBarang.jenis == "masuk").count() == 0
+
+
+TEKS_WA = """[11/11, 18:53] kevin: Barang masuk hari ini tnggl 5 nov 2026
+
+* beras 10000gr
+* Ayam special 3000gr( 1kg potong 8)
+* Totole 80gr(2bks)
+* Udang kering 1 0ns
+* minyak mkan 1 dus( 6 bks 13 liter)
+* gas 4 tbung( 1 tabung sma bar kitchen)
+
+*mkan karywan*
+Telur 40 butir
+[11/11, 18:53] kevin: REPORT ORDER tanggal 5- november-2026
+
+*orderan kitchen lafabrica* :
+* Ayam dada 2kg
+* Bawng merah kupas 1/2kg
+[11/11, 18:53] kevin: REPORT ORDER tanggal 5- november-2026
+
+*orderan (bar depan)*
+* Madu 1-2 botol
+
+*orderan kitchen lafabrica* :
+* Ayam dada 2kg
+* Bawng merah kupas 1/2kg
+[11/11, 18:53] kevin: *orderan bar :*
+1. Dripp Lychee ( sisa display )
+14. Beans Arabica 1.585 gr
+
+orderan waiters :
+1. Sedotan besar (utk smoothies)
+[11/11, 18:53] kevin: Barang masuk Bar Kitchen tgl 6 Nov
+1. Alpukat 3 kg
+2. Air mineral 5 kotak
+[11/11, 18:53] kevin: Orderan bar kitchen
+1. Allukat 3 kg
+[11/11, 18:53] kevin: *Belanja frozen*
+Spagetti sedani 2bks
+[11/11, 18:53] kevin: barang masuk bar depan lafabrica 7/11/26
+1. beans arabica 4 bag
+"""
+
+
+def test_pesan_whatsapp_diteruskan_dengan_judul_beragam(db):
+    """Pesan WhatsApp yang diteruskan: awalan pesan, judul singkat, order tanpa tanggal, dan kiriman ulang."""
+    from app.layanan import catatan_manual as CM
+    df, laporan = CM.rapikan(TEKS_WA, CM.Master.dari_db(db))
+    ringkas = [(lp.jenis, str(lp.tanggal_tertulis), sorted({b["bagian"] for b in lp.baris})) for lp in laporan]
+    assert ringkas == [
+        ("masuk", "2026-11-05", ["Kitchen", "Makan karyawan"]),   # bagian tidak ditulis: ditebak dari isi barangnya
+        ("order", "2026-11-05", ["Kitchen"]),
+        ("order", "2026-11-05", ["Bar depan"]),                    # kiriman ulang: bagian kitchen yang sama dibuang
+        ("order", "2026-11-05", ["Bar depan", "Waiters"]),         # tanpa tanggal: ikut laporan sebelumnya
+        ("masuk", "2026-11-06", ["Bar belakang"]),                 # "bar kitchen" = bar belakang; "tgl 6 Nov"
+        ("order", "2026-11-06", ["Bar belakang"]),
+        ("order", "2026-11-06", ["Kitchen"]),                      # daftar belanja dicatat sebagai order
+        ("masuk", "2026-11-07", ["Bar depan"]),                    # tanggal 7/11/26
+    ]
+    assert "Kiriman ulang" in laporan[2].catatan and "Daftar belanja" in laporan[6].catatan
+    o = df[df["jenis"] == "order"]
+    assert int((o["nama_normal"] == "ayam dada").sum()) == 1       # order kitchen 5 November tidak terhitung dua kali
+    m = df[df["jenis"] == "masuk"].set_index("nama_normal")
+    assert (m.loc["ayam special", "sku"], m.loc["ayam special", "jumlah_dasar"]) == ("BB176", 24)   # 3 kg x 8 potong
+    assert m.loc["totole", "jumlah_dasar"] == 80 and m.loc["totole", "status"] == CM.PERLU_DICEK     # berat total
+    assert m.loc["udang kering", "jumlah_dasar"] == 100            # "1 0ns" = 1 ons
+    assert m.loc["minyak makan", "jumlah_dasar"] == 13000          # isi dus yang tertulis di catatan
+    assert (m.loc["gas", "sku"], m.loc["gas", "jumlah_dasar"]) == ("BB105", 4)
+    assert m.loc["telur", "status"] == CM.KARYAWAN
+    assert (m.loc["alpukat", "jumlah_dasar"], m.loc["air mineral", "jumlah_dasar"]) == (3000, 120)
+    assert (m.loc["beans arabica", "jumlah_dasar"], m.loc["beans arabica", "status"]) == (4000, CM.PERLU_DICEK)
+    assert o.set_index("nama_normal").loc["beans arabica", "jumlah_dasar"] == 1585   # "1.585 gr"
+    assert o.set_index("nama_normal").loc["bawang merah", "sku"] == "BB129"
+    # daftar belanja tidak dibandingkan dengan barang masuk dan tidak menjadi barang masuk K1 aktual
+    assert "BB56" not in set(CM.order_vs_masuk(df)["sku"]) and "BB56" not in set(CM.data_k1_aktual(df)["baris"]["sku"])

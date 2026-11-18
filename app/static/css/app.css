@@ -281,6 +281,8 @@ tr.disembunyikan, th.disembunyikan, td.disembunyikan { display: none; }
 dl.rincian { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; margin: 0; }
 dl.rincian dt { color: var(--teks-2); }
 dl.rincian dd { margin: 0; font-weight: 600; }
+dl.rincian.kanan { grid-template-columns: minmax(0, 1fr) max-content; gap: 7px 10px; }
+dl.rincian.kanan dd { text-align: right; white-space: nowrap; }
 .rumus { font-family: "Cambria Math", Cambria, Georgia, serif; font-size: 15px; background: #f7f9fa; border: 1px solid var(--garis);
   border-radius: 6px; padding: 8px 12px; display: inline-block; }
 pre.log { background: #1d2329; color: #d8e1e8; padding: 14px 16px; border-radius: 7px; max-height: 360px; overflow: auto;
