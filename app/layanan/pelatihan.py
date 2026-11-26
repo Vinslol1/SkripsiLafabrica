@@ -1,6 +1,6 @@
 """Pelatihan ulang XGBoost + Q-Learning dari data di basis data, berjalan di latar belakang.
 
-lengkap : grid search XGBoost, tuning alpha/gamma Q-Learning, uji K1/K2/K3 dengan beberapa seed (beberapa menit).
+lengkap : grid search XGBoost, tuning alpha/gamma Q-Learning, uji K2/K3/K4 dengan beberapa seed (beberapa menit).
 cepat   : hiperparameter XGBoost dan Q-Learning dari model aktif, satu seed pengujian.
 Model baru langsung menjadi model aktif bila pelatihan berhasil.
 """

@@ -1,11 +1,11 @@
 """Alur pelatihan dan pengujian lengkap: praproses cakupan bahan -> XGBoost -> ROP dinamis -> Q-Learning ->
-simulasi K1/K2/K3.
+simulasi K1–K4.
 
 Praproses (ml/praproses.py) mengeluarkan bahan yang kosong atau didominasi nilai 0, lalu menetapkan bahan target
 penelitian. Model hanya dilatih dan diuji pada bahan yang dimodelkan (bawaan: bahan target).
 
-Selain uji 28 hari (K1 statis, K2, K3), bila ada catatan barang masuk cafe yang beririsan dengan periode uji,
-barang yang benar-benar diterima diputar ulang sebagai K1 aktual dan dibandingkan dengan K1 statis, K2, dan K3
+Selain uji 28 hari (K2, K3, K4), bila ada catatan barang masuk cafe yang beririsan dengan periode uji,
+barang yang benar-benar diterima diputar ulang sebagai K1 dan dibandingkan dengan K2, K3, dan K4
 pada hari-hari yang sama.
 
 Dipakai oleh aplikasi (menu Pelatihan Ulang) dan dari baris perintah:
@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 import config as C
+from ml import penamaan as PN
 from ml import praproses as PR
 from ml import rincian as RC
 from ml import simulasi as SIM
@@ -70,11 +71,11 @@ def data_mingguan(wide, f1, f2, skus, weeks):
 
 
 def lengkapi_agen(par, data, sigma, d_hist):
-    """Batas interval state, rata-rata pemakaian, parameter K1, ruang aksi (m), dan kapasitas simpan dari data latih.
+    """Batas interval state, rata-rata pemakaian, parameter K2, ruang aksi (m), dan kapasitas simpan dari data latih.
 
     m (kelipatan pemesanan maksimum, Tabel 5) disesuaikan dengan kapasitas simpan: bila kapasitas (dalam kemasan)
     sudah diisi di data master, m = kapasitas dan kap = kapasitas x k. Bila belum, kapasitas otomatis dipilih agar
-    mencakup stok target order-up-to tertinggi pada data latih (dengan cadangan 20%) dan stok tertinggi K1
+    mencakup stok target order-up-to tertinggi pada data latih (dengan cadangan 20%) dan stok tertinggi K2
     (ROP statis + jumlah pesan), lalu m = kap / k dibatasi QL_M_MAKS.
     """
     n = len(par["k"])
@@ -84,7 +85,7 @@ def lengkapi_agen(par, data, sigma, d_hist):
     par["edges"] = [tepi_bin(d[i], f1[i]) for i in range(n)]
     par["d_bar"] = d.mean(1)
     par["sigma"] = np.nan_to_num(sigma)
-    par.update(SIM.parameter_k1(d_hist, par))
+    par.update(SIM.parameter_k2(d_hist, par))
     out = f1 + f2 + C.Z_LAYANAN * par["sigma"][:, None] * math.sqrt(C.LEAD_TIME + 1)
     k = par["k"]
     U = np.maximum(1.2 * out.max(1), par["rop1"] + par["q1"])
@@ -106,22 +107,22 @@ def prakiraan_periode(pm: PeramalXGB, model, skala, mulai, T, skus, metode=None)
     return yh1, yh2
 
 
-VARIAN_AKTUAL = ("K1A", "K1", "K2", "K3")
-PASANGAN_UJI = (("K3", "K1"), ("K3", "K2"), ("K2", "K1"))
-PASANGAN_AKTUAL = (("K3", "K1A"), ("K2", "K1A"), ("K1", "K1A"), ("K3", "K2"))
-MIN_HARI_AKTUAL = 7          # di bawah ini hasil K1 aktual ditandai belum layak disimpulkan
+VARIAN_AKTUAL = ("K1", "K2", "K3", "K4")
+PASANGAN_UJI = (("K4", "K2"), ("K4", "K3"), ("K3", "K2"))
+PASANGAN_AKTUAL = (("K4", "K1"), ("K3", "K1"), ("K2", "K1"), ("K4", "K3"))
+MIN_HARI_AKTUAL = 7          # di bawah ini hasil K1 ditandai belum layak disimpulkan
 
 
 def evaluasi_aktual(masuk: dict | None, sp: dict, skus: list, par: dict, d_test, yh1, yh2, agen, n_seed: int,
                     log=print) -> dict:
-    """K1 aktual: barang yang benar-benar diterima cafe diputar ulang pada lingkungan simulasi yang sama.
+    """K1: barang yang benar-benar diterima cafe diputar ulang pada lingkungan simulasi yang sama.
 
     masuk : {"baris": DataFrame tanggal, sku, jumlah (satuan dasar, NaN = belum diketahui),
              "hari": tanggal yang punya laporan barang masuk}
     Periode = hari berurutan berlaporan di dalam periode uji. Bahan yang diuji = bahan yang dimodelkan dan punya
     barang masuk tercatat di periode itu; bahan dengan barang masuk yang jumlahnya belum diketahui dikecualikan.
     Barang masuk untuk bahan yang tidak dimodelkan (di luar bahan target) hanya dihitung jumlah bahannya.
-    K1 statis, K2, dan K3 dijalankan ulang pada hari dan bahan yang sama dari stok awal yang sama:
+    K2, K3, dan K4 dijalankan ulang pada hari dan bahan yang sama dari stok awal yang sama:
       - skenario utama: taksiran stok awal aktual (stok terkecil agar barang masuk aktual cukup untuk pemakaian
         aktual, karena pemakaian di stok keluar benar-benar terjadi), dan
       - 5 tingkat stok awal seperti uji 28 hari, sebagai uji kepekaan.
@@ -165,22 +166,34 @@ def evaluasi_aktual(masuk: dict | None, sp: dict, skus: list, par: dict, d_test,
     p = {k: np.asarray(par[k])[idx] for k in ("k", "tau", "c_h", "c_s", "c_w", "c_o", "rop1", "q1", "kap")}
     p["q_aktual"] = Q
     d_pakai = d_test[idx, t0:t0 + T]
-    s0 = SIM.taksir_stok_awal(d_pakai, Q)
+    s0 = SIM.taksir_stok_awal(d_pakai, Q, tau=p["tau"] if C.K1_LENGKAPI else None)
     harian = {}
     runs = SIM.evaluasi(p, d_pakai, yh1[idx, t0:t0 + T], yh2[idx, t0:t0 + T], par["sigma"][idx],
                         agen=agen, ruang_list=[par["edges"][i] for i in idx], n_seed=n_seed, d_bar=par["d_bar"][idx],
                         varian=VARIAN_AKTUAL, indeks_agen=idx, n_agen=len(skus), stok_awal_tetap=s0, harian=harian)
     runs["sku"] = [pakai[i] for i in runs["b"]]
-    log(f"K1 aktual: {T} hari ({jendela[0]:%d/%m} s.d. {jendela[-1]:%d/%m}), {len(pakai)} bahan dengan barang masuk "
+    # augmentasi K1 (skenario utama): barang masuk tambahan per bahan per hari, terpisah dari barang masuk tercatat
+    q_tambah = np.zeros_like(Q)
+    if "K1" in harian and "tambah" in harian["K1"]:
+        x = harian["K1"]
+        for j in np.flatnonzero(x["stok_awal"] == SIM.STOK_AWAL_TAKSIRAN):
+            q_tambah[int(x["b"][j])] = x["tambah"][j]
+    if C.K1_LENGKAPI:
+        n_aug = int((q_tambah.sum(1) > 1e-9).sum())
+        log(f"Augmentasi K1: {n_aug} dari {len(pakai)} bahan mendapat barang masuk tambahan "
+            f"({int((q_tambah > 1e-9).sum())} bahan-hari) agar stok selalu cukup untuk pemakaian aktual")
+    log(f"Periode aktual K1: {T} hari ({jendela[0]:%d/%m} s.d. {jendela[-1]:%d/%m}), {len(pakai)} bahan dengan barang masuk "
         f"tercatat, {len(dikecualikan)} bahan dikecualikan, {len(tanpa_masuk)} bahan tanpa barang masuk tercatat")
-    return {**dasar, "status": "ok", "skus": pakai, "runs": runs, "q": Q, "stok_awal": s0, "pakai": d_pakai,
+    dasar["augmentasi"] = bool(C.K1_LENGKAPI)
+    return {**dasar, "status": "ok", "skus": pakai, "runs": runs, "q": Q, "q_tambahan": q_tambah, "stok_awal": s0,
+            "pakai": d_pakai,
             "hari": [str(h.date()) for h in jendela], "harian": harian}
 
 
 def jalankan(long: pd.DataFrame, master: pd.DataFrame, biaya: dict = None, tuning=False, n_seed=5,
              n_episode=C.QL_EPISODE, log=print, simpan=True, grid_search=True, best_params=None,
              folder_artefak=None, folder_laporan=None, ql_params=None, masuk: dict | None = None) -> dict:
-    """masuk: catatan barang masuk cafe untuk K1 aktual (lihat evaluasi_aktual), boleh None."""
+    """masuk: catatan barang masuk cafe untuk K1 (lihat evaluasi_aktual), boleh None."""
     t_mulai = time.time()
     biaya = biaya or {"biaya_pesan": C.BIAYA_PESAN, "biaya_simpan_persen": C.BIAYA_SIMPAN_PERSEN}
     wide = tabel_lebar(long)
@@ -235,7 +248,7 @@ def jalankan(long: pd.DataFrame, master: pd.DataFrame, biaya: dict = None, tunin
                 agen, _ = latih_agen(par, data, seeds=C.SIM_SEED[:2], n_episode=n_episode, alpha=a_, gamma=g_,
                                      log=lambda *_: None)
                 runs = SIM.evaluasi(par, d_val, yh1, yh2, par["sigma"], agen=agen, ruang_list=par["edges"],
-                                    n_seed=2, d_bar=par["d_bar"], varian=("K3",))
+                                    n_seed=2, d_bar=par["d_bar"], varian=("K4",))
                 tc = runs.groupby(["stok_awal", "seed"])["TC"].sum().mean()
                 tuning_rows.append({"alpha": a_, "gamma": g_, "TC_validasi": float(tc)})
                 log(f"  alpha={a_} gamma={g_}: total biaya validasi Rp {tc:,.0f}")
@@ -245,7 +258,7 @@ def jalankan(long: pd.DataFrame, master: pd.DataFrame, biaya: dict = None, tunin
     hasil["ql_params"] = {"alpha": alpha, "gamma": gamma, "episode": n_episode}
     hasil["tuning"] = tuning_rows
 
-    # ---------------- 3. agen akhir (latih s.d. akhir validasi) dan uji K1/K2/K3 pada data uji
+    # ---------------- 3. agen akhir (latih s.d. akhir validasi) dan uji K2/K3/K4 pada data uji
     wk = minggu_penuh(oos_mulai, sp["val_end"])
     data = data_mingguan(wide, oos["f1"], oos["f2"], skus, wk)
     par = lengkapi_agen(dict(par0), data, sig_e, wide.loc[:sp["val_end"], skus].values.T)
@@ -263,7 +276,7 @@ def jalankan(long: pd.DataFrame, master: pd.DataFrame, biaya: dict = None, tunin
     runs["sku"] = [skus[b] for b in runs["b"]]
     hasil["aktual"] = evaluasi_aktual(masuk, sp, skus, par, d_test, yh1, yh2, agen, n_seed, log=log)
     if hasil["aktual"]["status"] != "ok" and masuk:
-        log(f"K1 aktual belum dihitung: {hasil['aktual'].get('pesan', '')}")
+        log(f"K1 belum dihitung: {hasil['aktual'].get('pesan', '')}")
     hasil.update({"runs": runs, "harian": harian, "d_test": d_test, "kurva": kurva, "skus": skus, "par_uji": par,
                   "res_xgb": res,
                   "periode_uji": [str((sp["val_end"] + pd.Timedelta(days=1)).date()), str(sp["test_end"].date())],
@@ -307,7 +320,7 @@ def simpan_artefak(h: dict, master: pd.DataFrame, folder=None, log=print):
     for i, s in enumerate(h["skus"]):
         q_meta[s] = {"edges": par["edges"][i], "k": float(par["k"][i]), "m": int(par["m"][i]),
                      "kap": float(par["kap"][i]), "kap_manual": bool(par["kap_manual"][i]),
-                     "d_bar": float(par["d_bar"][i]), "rop_k1": float(par["rop1"][i]), "q_k1": float(par["q1"][i])}
+                     "d_bar": float(par["d_bar"][i]), "rop_k2": float(par["rop1"][i]), "q_k2": float(par["q1"][i])}
     np.savez_compressed(folder / "qtable.npz", Q=agen.Q, N=agen.N, skus=np.array(h["skus"]))
     (folder / "qtable_meta.json").write_text(json.dumps(q_meta, indent=1), encoding="utf-8")
     ev = ringkasan_evaluasi(h, master)
@@ -378,7 +391,7 @@ def ringkas_aktual(h: dict, master: pd.DataFrame, utama: list) -> dict | None:
     a = h.get("aktual")
     if not a:
         return None
-    out = {k: v for k, v in a.items() if k not in ("runs", "q", "stok_awal", "pakai", "harian")}
+    out = {k: v for k, v in a.items() if k not in ("runs", "q", "q_tambahan", "stok_awal", "pakai", "harian")}
     nama = master.set_index("sku")["nama"].to_dict()
     for x in out.get("dikecualikan", []):
         x["nama"] = nama.get(x["sku"], x["sku"])
@@ -390,6 +403,9 @@ def ringkas_aktual(h: dict, master: pd.DataFrame, utama: list) -> dict | None:
     tb, uji = _banding(runs[taksir], a["skus"], utama, nama, VARIAN_AKTUAL, PASANGAN_AKTUAL)
     tb5, uji5 = _banding(runs[~taksir], a["skus"], utama, nama, VARIAN_AKTUAL, PASANGAN_AKTUAL)
     tb["diterima_aktual"] = a["q"].sum(1)
+    if a.get("q_tambahan") is not None:
+        tb["tambahan_augmentasi"] = np.asarray(a["q_tambahan"]).sum(1)
+        tb["hari_augmentasi"] = (np.asarray(a["q_tambahan"]) > 1e-9).sum(1)
     tb["pakai_aktual"] = a["pakai"].sum(1)
     tb["stok_awal_taksiran"] = a["stok_awal"]
     for v in VARIAN_AKTUAL:
@@ -405,10 +421,11 @@ def ringkasan_evaluasi(h: dict, master: pd.DataFrame) -> dict:
     res = h["res_xgb"]
     utama = _bahan_utama(h, master)
     nama = master.set_index("sku")["nama"].to_dict()
-    tb, uji = _banding(h["runs"], h["skus"], utama, nama, ("K1", "K2", "K3"), PASANGAN_UJI)
+    tb, uji = _banding(h["runs"], h["skus"], utama, nama, ("K2", "K3", "K4"), PASANGAN_UJI)
 
     rk = res["ringkasan"].reset_index()
     return {
+        PN.PENANDA: PN.VERSI,
         "dibuat": datetime.now().isoformat(timespec="seconds"),
         "split": h["split"], "periode_uji": h["periode_uji"], "best_params": h["best_params"],
         "ql_params": h["ql_params"], "tuning": h["tuning"], "minggu_latih_agen": h["minggu_latih_agen"],
@@ -428,7 +445,7 @@ def ringkasan_evaluasi(h: dict, master: pd.DataFrame) -> dict:
 
 
 def tulis_laporan(h: dict, master: pd.DataFrame, folder=None, log=print):
-    """Laporan Excel untuk Bab 4 skripsi: evaluasi XGBoost dan simulasi K1/K2/K3."""
+    """Laporan Excel untuk Bab 4 skripsi: evaluasi XGBoost dan simulasi K1–K4."""
     folder = Path(folder or C.LAPORAN)
     folder.mkdir(parents=True, exist_ok=True)
     res = h["res_xgb"]
@@ -448,7 +465,8 @@ def tulis_laporan(h: dict, master: pd.DataFrame, folder=None, log=print):
     ev = ringkasan_evaluasi(h, master)
     runs = h["runs"].copy()
     runs["nama"] = runs["sku"].map(info["nama"])
-    with pd.ExcelWriter(folder / "simulasi_K1_K2_K3.xlsx") as w:
+    with pd.ExcelWriter(folder / "simulasi_K1_K2_K3_K4.xlsx") as w:
+        tulis_lembar_hasil_biaya(w, ev)
         rows = []
         for label in ("utama", "semua"):
             for v, d in ev["kebijakan"][label]["total"].items():
@@ -465,7 +483,7 @@ def tulis_laporan(h: dict, master: pd.DataFrame, folder=None, log=print):
         pd.DataFrame({"sku": h["skus"], "nama": [info["nama"].get(s, s) for s in h["skus"]],
                       "k": par["k"], "m": par["m"], "kapasitas": par["kap"], "masa_simpan": par["tau"],
                       "c_h": par["c_h"], "c_s": par["c_s"], "c_w": par["c_w"], "c_o": par["c_o"],
-                      "sigma_e": par["sigma"], "d_bar": par["d_bar"], "ROP_K1": par["rop1"], "Q_K1": par["q1"]}
+                      "sigma_e": par["sigma"], "d_bar": par["d_bar"], "ROP_K2": par["rop1"], "Q_K2": par["q1"]}
                      ).to_excel(w, sheet_name="Parameter", index=False)
         if h["tuning"]:
             pd.DataFrame(h["tuning"]).to_excel(w, sheet_name="Tuning Validasi", index=False)
@@ -477,6 +495,38 @@ def tulis_laporan(h: dict, master: pd.DataFrame, folder=None, log=print):
         if h.get("harian"):
             RC.tulis_lembar(w, h, ev, info)
     log(f"Laporan Excel tersimpan di {folder}")
+
+
+HASIL_BIAYA = (("Biaya simpan", "b_h_mean"), ("Biaya kehabisan", "b_s_mean"), ("Biaya terbuang", "b_w_mean"),
+               ("Biaya pesan", "b_o_mean"), ("Total biaya (TC)", "TC_mean"), ("Fill rate rata-rata", "FR_rata_mean"),
+               ("Rasio terbuang rata-rata", "WR_rata_mean"), ("Hari kehabisan stok (bahan-hari)", "hari_stockout_mean"),
+               ("Pemesanan / kedatangan", "jumlah_pesan_mean"))
+
+
+def tabel_hasil_biaya(ra: dict) -> pd.DataFrame | None:
+    """Tabel hasil simulasi biaya K1-K4 (periode aktual, taksiran stok awal): baris = komponen, kolom = kebijakan."""
+    if ra.get("status") != "ok":
+        return None
+    kb = ra["kebijakan"]["utama"] if ra["kebijakan"]["utama"].get("n_bahan") else ra["kebijakan"]["semua"]
+    t = kb["total"]
+    kolom = [v for v in VARIAN_AKTUAL if v in t]
+    return pd.DataFrame([{"komponen": lbl, **{v: t[v].get(k) for v in kolom}} for lbl, k in HASIL_BIAYA])
+
+
+def tulis_lembar_hasil_biaya(w, ev: dict):
+    """Lembar pertama laporan simulasi: hasil biaya K1-K4 pada hari dan bahan yang sama (periode aktual)."""
+    ra = ev.get("aktual") or {}
+    t = tabel_hasil_biaya(ra)
+    if t is None:
+        pd.DataFrame([{"keterangan": "K1 belum bisa dihitung: " + str(ra.get("pesan", "belum ada catatan barang masuk"))}]
+                     ).to_excel(w, sheet_name="Hasil Biaya K1-K4", index=False)
+        return
+    kb = ra["kebijakan"]["utama"] if ra["kebijakan"]["utama"].get("n_bahan") else ra["kebijakan"]["semua"]
+    ket = (f"Periode {ra['periode'][0]} s.d. {ra['periode'][1]} ({ra['n_hari']} hari), {kb['n_bahan']} bahan dengan catatan "
+           "barang masuk, taksiran stok awal aktual. K1 = data historis (barang masuk aktual cafe), K2 = ROP statis + EOQ, "
+           "K3 = ROP dinamis + order-up-to, K4 = ROP dinamis + Q-Learning (rata-rata seed).")
+    pd.DataFrame([{"komponen": ket}]).to_excel(w, sheet_name="Hasil Biaya K1-K4", index=False, header=False)
+    t.to_excel(w, sheet_name="Hasil Biaya K1-K4", index=False, startrow=2)
 
 
 def tulis_lembar_pemilihan(w, h: dict):
@@ -513,14 +563,19 @@ def tulis_lembar_pemilihan(w, h: dict):
 
 
 def tulis_lembar_aktual(w, h: dict, ev: dict, info: pd.DataFrame):
-    """Lembar K1 aktual pada laporan simulasi: ringkasan, perbandingan, per bahan, barang masuk, semua run."""
+    """Lembar periode aktual (K1 dibanding K2, K3, K4) pada laporan simulasi: ringkasan, perbandingan, per bahan, barang masuk, semua run."""
     a, ra = h.get("aktual") or {}, ev.get("aktual") or {}
     keterangan = [
-        ("K1 aktual", "barang yang benar-benar diterima cafe (catatan barang masuk WhatsApp) diputar ulang apa adanya"),
-        ("K1 statis", "ROP statis + EOQ, dihitung dari data historis (sama seperti uji 28 hari)"),
+        ("K1", "barang yang benar-benar diterima cafe (catatan barang masuk WhatsApp) diputar ulang apa adanya"
+               + ("; kekurangan dilengkapi barang masuk tambahan hasil augmentasi (lembar Periode Aktual Augmentasi)"
+                  if ra.get("augmentasi") else "")),
+        ("Augmentasi data historis K1", "ya: bila stok layak pakai + barang masuk tercatat < pemakaian aktual hari itu, "
+                                        "selisihnya ditambahkan sebagai pembelian tidak tercatat, sehingga K1 tidak "
+                                        "pernah kehabisan stok" if ra.get("augmentasi") else "tidak"),
+        ("K2", "ROP statis + EOQ, dihitung dari data historis (sama seperti uji 28 hari)"),
         ("Catatan barang masuk", " s.d. ".join(ra.get("catatan", [])) or "-"),
         ("Data pemakaian sampai", ra.get("pemakaian_sampai", "-")),
-        ("Periode K1 aktual", " s.d. ".join(ra.get("periode", [])) or "-"),
+        ("Periode aktual", " s.d. ".join(ra.get("periode", [])) or "-"),
         ("Jumlah hari", ra.get("n_hari", 0)),
         ("Status", ra.get("status", "tidak ada") + (f": {ra['pesan']}" if ra.get("pesan") else "")),
     ]
@@ -532,7 +587,7 @@ def tulis_lembar_aktual(w, h: dict, ev: dict, info: pd.DataFrame):
     if ra.get("n_tanpa_masuk"):
         rows.append({"keterangan": "Bahan terpakai tanpa barang masuk tercatat (tidak diuji)",
                      "nilai": ra["n_tanpa_masuk"]})
-    pd.DataFrame(rows).to_excel(w, sheet_name="K1 Aktual Info", index=False)
+    pd.DataFrame(rows).to_excel(w, sheet_name="Periode Aktual Info", index=False)
     if ra.get("status") != "ok":
         return
     rows, rows_b = [], []
@@ -544,9 +599,9 @@ def tulis_lembar_aktual(w, h: dict, ev: dict, info: pd.DataFrame):
                 rows.append({"stok awal": skenario, "kelompok bahan": label, "varian": v, **d})
             for k, d in kb["banding"].items():
                 rows_b.append({"stok awal": skenario, "kelompok bahan": label, "perbandingan": k, **d})
-    pd.DataFrame(rows).to_excel(w, sheet_name="K1 Aktual Ringkasan", index=False)
-    pd.DataFrame(rows_b).to_excel(w, sheet_name="K1 Aktual Perbandingan", index=False)
-    pd.DataFrame(ra["per_bahan"]).to_excel(w, sheet_name="K1 Aktual Per Bahan", index=False)
+    pd.DataFrame(rows).to_excel(w, sheet_name="Periode Aktual Ringkasan", index=False)
+    pd.DataFrame(rows_b).to_excel(w, sheet_name="Periode Aktual Perbandingan", index=False)
+    pd.DataFrame(ra["per_bahan"]).to_excel(w, sheet_name="Periode Aktual Per Bahan", index=False)
     q = pd.DataFrame(a["q"], columns=[pd.Timestamp(t).strftime("%d/%m/%Y") for t in a["hari"]])
     q.insert(0, "satuan", [info["satuan"].get(s, "") for s in a["skus"]])
     q.insert(0, "nama", [info["nama"].get(s, s) for s in a["skus"]])
@@ -554,10 +609,25 @@ def tulis_lembar_aktual(w, h: dict, ev: dict, info: pd.DataFrame):
     q["total masuk"] = a["q"].sum(1)
     q["total pakai"] = a["pakai"].sum(1)
     q["taksiran stok awal"] = a["stok_awal"]
-    q.to_excel(w, sheet_name="K1 Aktual Barang Masuk", index=False)
+    q.to_excel(w, sheet_name="Periode Aktual Barang Masuk", index=False)
+    if a.get("q_tambahan") is not None and ra.get("augmentasi"):
+        qt = np.asarray(a["q_tambahan"], float)
+        tg = [pd.Timestamp(t).strftime("%d/%m/%Y") for t in a["hari"]]
+        g = pd.DataFrame(qt, columns=tg)
+        g.insert(0, "jenis", "tambahan (augmentasi)")
+        g.insert(0, "satuan", [info["satuan"].get(s, "") for s in a["skus"]])
+        g.insert(0, "nama", [info["nama"].get(s, s) for s in a["skus"]])
+        g.insert(0, "sku", a["skus"])
+        g["total"] = qt.sum(1)
+        g["hari dengan tambahan"] = (qt > 1e-9).sum(1)
+        g["total tercatat"] = a["q"].sum(1)
+        g["total pakai"] = a["pakai"].sum(1)
+        g["bagian augmentasi dari barang masuk"] = np.where(qt.sum(1) + a["q"].sum(1) > 0,
+                                                            qt.sum(1) / np.maximum(qt.sum(1) + a["q"].sum(1), 1e-12), 0)
+        g.to_excel(w, sheet_name="Periode Aktual Augmentasi", index=False)
     runs = a["runs"].copy()
     runs["nama"] = runs["sku"].map(info["nama"])
-    runs.to_excel(w, sheet_name="K1 Aktual Semua Run", index=False)
+    runs.to_excel(w, sheet_name="Periode Aktual Semua Run", index=False)
 
 
 if __name__ == "__main__":

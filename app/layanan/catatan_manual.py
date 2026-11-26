@@ -7,7 +7,7 @@ Catatan harian cafe ditulis bebas per bagian (bar depan, bar belakang, kitchen, 
   3. mencocokkan nama barang dengan data bahan (SKU) dan mengubah jumlah ke satuan dasar majoo.
 
 Baris yang pencocokan atau konversinya memakai asumsi diberi status "perlu dicek", supaya pengguna bisa
-memeriksanya di Excel sebelum barang masuk diimpor ke aplikasi. Barang masuk inilah yang dipakai K1 aktual.
+memeriksanya di Excel sebelum barang masuk diimpor ke aplikasi. Barang masuk inilah yang dipakai K1.
 """
 from __future__ import annotations
 
@@ -385,8 +385,12 @@ _RE_WA = re.compile(r"^\s*\[\d{1,2}/\d{1,2}(?:/\d{2,4})?,?\s+\d{1,2}[:.]\d{2}(?:
 _RE_JUDUL = re.compile(r"^(report\s+order|barang\s+masuk|order(?:an)?|belanja)\b(.*)$")
 _HARI = {"senin", "selasa", "rabu", "kamis", "jumat", "jum", "at", "sabtu", "minggu", "ahad"}
 # kata yang boleh ada di baris judul selain tanggal dan nama bagian
-_KATA_JUDUL = {"hari", "hri", "ini", "tanggal", "tgl", "tnggl", "tanggl", "tngl", "tggl", "lafabrica", "bar", "depan",
-               "belakang", "kitchen", "waiters", "waiter", "orderan", "order", "barang", "masuk"} | _HARI
+_KATA_TANGGAL = ("tanggal", "tgl", "tnggl", "tanggl", "tngl", "tggl", "tngvl")
+_KATA_JUDUL = {"hari", "hri", "ini", *_KATA_TANGGAL, "lafabrica", "bar", "depan",
+               "belakang", "kitchen", "waiters", "waiter", "orderan", "order", "barang", "masuk", "bahan"} | _HARI
+# judul yang diawali nama bagian: "Bar kitchen : Barang masuk.", "Bar kitchen : Orderan bahan."
+_RE_JUDUL_BAGIAN = re.compile(r"^((?:bar\s*(?:depan|belakang|kitchen)?|kitchen)(?:\s+lafabrica)?)\s*:?\s*"
+                              r"(barang\s+masuk|order(?:an)?)\b(.*)$")
 
 
 def _tanggal_dari(s: str, konteks: date | None = None) -> tuple[date | None, str]:
@@ -400,14 +404,14 @@ def _tanggal_dari(s: str, konteks: date | None = None) -> tuple[date | None, str
     m = re.search(r"(\d{1,2})\s*[-/ ]\s*([a-z]{3,9})\s*[-/ ]?\s*(\d{4})\b", s)
     if m and m.group(2) in BULAN:
         return aman(int(m.group(3)), BULAN[m.group(2)], int(m.group(1))), s[:m.start()] + " " + s[m.end():]
-    m = re.search(r"\b(\d{1,2})\s*/\s*(\d{1,2})\s*/\s*(\d{2}|\d{4})\b", s)
+    m = re.search(r"\b(\d{1,2})\s*([/-])\s*(\d{1,2})\s*\2\s*(\d{2}|\d{4})\b", s)
     if m:
-        t = int(m.group(3))
-        return aman(t + 2000 if t < 100 else t, int(m.group(2)), int(m.group(1))), s[:m.start()] + " " + s[m.end():]
+        t = int(m.group(4))
+        return aman(t + 2000 if t < 100 else t, int(m.group(3)), int(m.group(1))), s[:m.start()] + " " + s[m.end():]
     m = re.search(r"\b(\d{1,2})\s*[-/ ]?\s*([a-z]{3,9})\b", s)
     if m and m.group(2) in BULAN and konteks is not None:
         return aman(konteks.year, BULAN[m.group(2)], int(m.group(1))), s[:m.start()] + " " + s[m.end():]
-    m = re.search(r"\b(?:tanggal|tgl|tnggl|tanggl|tngl|tggl)\s*(\d{1,2})\b", s)
+    m = re.search(rf"\b(?:{'|'.join(_KATA_TANGGAL)})\s*(\d{{1,2}})\b", s)
     if m and konteks is not None:
         return aman(konteks.year, konteks.month, int(m.group(1))), s[:m.start()] + " " + s[m.end():]
     return None, s
@@ -435,6 +439,9 @@ def _judul(baris: str, konteks: date | None = None) -> dict | None:
     Mengembalikan jenis, tanggal (None bila tidak ditulis), bagian, dan penanda judul baku/daftar belanja; None
     bila baris bukan judul (mis. baris barang)."""
     s = re.sub(r"[*#•_]+", " ", baris.lower()).strip(" -:\t")
+    mb = _RE_JUDUL_BAGIAN.match(s)
+    if mb:                                                    # "bar kitchen : barang masuk" -> "barang masuk bar kitchen"
+        s = f"{mb.group(2)} {mb.group(1)} {mb.group(3)}".strip(" .:")
     m = _RE_JUDUL.match(s)
     if not m:
         return None
@@ -802,14 +809,16 @@ def ke_satuan_dasar(sku: str, r: dict, M: Master):
             return dari_tabel()
         isi_biasa = k_master or (a_tabel[0] if a_tabel else None)
         ragu_total = n > 1 and r.get("berat_dulu")
-        if ragu_total and isi_biasa:
+        if n > 1 and isi_biasa:
             # "Totole 80gr(2bks)": bar menulis ukuran x banyaknya, kitchen kadang menulis berat total (banyaknya).
-            # Dipilih bacaan yang paling dekat dengan isi kemasan yang biasa.
+            # "Kentang 2 bks (2000gr)": berat dalam kurung juga bisa berat total. Dipilih bacaan yang paling dekat
+            # dengan isi kemasan yang biasa.
             harap = n * isi_biasa
             if abs(ukuran - harap) < abs(n * ukuran - harap):
+                tertulis = (f"{isi:g} {sat_isi} ({n:g} {sat})" if r.get("berat_dulu")
+                            else f"{n:g} {sat} ({isi:g} {sat_isi})")
                 return ukuran, f"{ukuran:g} g ({n:g} {sat})", (
-                    f"tertulis {isi:g} {sat_isi} ({n:g} {sat}): dibaca berat total karena 1 {sat} biasanya "
-                    f"{isi_biasa:g} g")
+                    f"tertulis {tertulis}: dibaca berat total karena 1 {sat} biasanya {isi_biasa:g} g")
         if ragu_total and r.get("bagian") == "Kitchen":
             return n * ukuran, f"{n:g} {sat} x {ukuran:g} g", (
                 f"tertulis {isi:g} {sat_isi} ({n:g} {sat}): dibaca {n:g} x {ukuran:g} g; cek apakah itu berat total")
@@ -971,8 +980,8 @@ KOLOM_EXCEL = [
 ]
 SEMUA_STATUS = [DIPAKAI, PERLU_DICEK, TANPA_JUMLAH, BELUM_ADA, BUKAN_BAHAN, KARYAWAN, RUPIAH]
 ARTI_STATUS = {
-    DIPAKAI: "Cocok dengan data bahan dan jumlahnya jelas. Dipakai K1 aktual.",
-    PERLU_DICEK: "Dipakai K1 aktual, tetapi nama atau isi kemasannya memakai asumsi. Cek dengan staf cafe.",
+    DIPAKAI: "Cocok dengan data bahan dan jumlahnya jelas. Dipakai K1.",
+    PERLU_DICEK: "Dipakai K1, tetapi nama atau isi kemasannya memakai asumsi. Cek dengan staf cafe.",
     TANPA_JUMLAH: "Barang disebut tanpa jumlah (biasanya order \"sisa display\"). Tidak dipakai.",
     BELUM_ADA: "Bahan belum terdaftar di data bahan majoo/aplikasi. Tidak dipakai.",
     BUKAN_BAHAN: "Perlengkapan (cup, sedotan, plastik, ...). Tidak dipakai.",
@@ -1125,7 +1134,7 @@ def tulis_excel(df: pd.DataFrame, laporan: list | None, tujuan, judul_sumber: st
     ws.cell(row=ws.max_row, column=1).font = Font(bold=True)
     ws.append([])
     rk = rekap_masuk(df)
-    ws.append(["Barang masuk untuk K1 aktual", f"{len(rk)} pasangan tanggal-bahan, {rk['sku'].nunique()} bahan, "
+    ws.append(["Barang masuk untuk K1", f"{len(rk)} pasangan tanggal-bahan, {rk['sku'].nunique()} bahan, "
                f"{m['tanggal'].nunique()} hari laporan"])
     ws.cell(row=ws.max_row, column=1).font = Font(bold=True)
     ovm = order_vs_masuk(df)
@@ -1142,7 +1151,7 @@ def tulis_excel(df: pd.DataFrame, laporan: list | None, tujuan, judul_sumber: st
         "   Setelah dicek, ubah Status \"perlu dicek\" menjadi \"dipakai\" (atau status lain bila barang tidak dipakai).",
         "3. Impor file ini di aplikasi: Inventori > Kelola Stok > Catatan Barang Masuk > Impor Excel.",
         "   Saat impor yang dibaca adalah Tanggal, Bagian, Catatan Asli, SKU, Jumlah (Satuan Dasar), dan Status.",
-        "4. K1 aktual memakai baris berstatus \"dipakai\" dan \"perlu dicek\" yang jumlah satuan dasarnya terisi.",
+        "4. K1 memakai baris berstatus \"dipakai\" dan \"perlu dicek\" yang jumlah satuan dasarnya terisi.",
         "Lembar \"Rekap Masuk Harian\" berisi jumlah barang masuk per bahan per hari (satuan dasar majoo).",
         "Lembar \"Order vs Masuk\" membandingkan order hari H dengan barang yang datang hari H+1 (lead time 1 hari).",
     ]:
@@ -1358,7 +1367,7 @@ def dari_db(db, jenis: str | None = None) -> pd.DataFrame:
 
 
 def data_k1_aktual(df: pd.DataFrame) -> dict | None:
-    """Masukan simulasi K1 aktual dari catatan barang masuk.
+    """Masukan simulasi K1 dari catatan barang masuk.
 
     baris : DataFrame tanggal (Timestamp), sku, jumlah (satuan dasar; NaN = jumlah belum diketahui)
     hari  : tanggal yang punya laporan barang masuk. Pada hari berlaporan, bahan yang tidak disebut dianggap

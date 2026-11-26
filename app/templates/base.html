@@ -75,7 +75,7 @@
       <button type="button">{{ ikon("batang") }} Analisis Model {{ ikon("bawah", "panah") }}</button>
       <ul>
         <li><a href="/evaluasi" class="{{ 'aktif' if menu == 'evaluasi' }}">Evaluasi Prediksi</a></li>
-        <li><a href="/simulasi" class="{{ 'aktif' if menu == 'simulasi' }}">Simulasi K1/K2/K3</a></li>
+        <li><a href="/simulasi" class="{{ 'aktif' if menu == 'simulasi' }}">Simulasi K1–K4</a></li>
         <li><a href="/pelatihan" class="{{ 'aktif' if menu == 'pelatihan' }}">Pelatihan Ulang</a></li>
       </ul>
     </li>
@@ -94,7 +94,7 @@
   <div class="wadah">
     {% if mode_demo %}
     <div class="pita-demo">{{ ikon("info", "ikon-k") }} <b>Mode demo.</b> Stok keluar adalah data asli; stok opname awal, pembelian, stok terbuang, dan pembelian darurat
-      pada 4 minggu terakhir adalah hasil simulasi kebijakan K3.</div>
+      pada 4 minggu terakhir adalah hasil simulasi kebijakan K4.</div>
     {% endif %}
     {% if flash %}
     <div class="kilat">

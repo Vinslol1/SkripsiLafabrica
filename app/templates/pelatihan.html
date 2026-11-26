@@ -21,7 +21,7 @@
       <ol style="padding-left:20px;margin:0 0 14px">
         <li>XGBoost global: pembagian data latih/validasi/uji 4 minggu terakhir, grid search dengan validasi silang rolling origin, σ<sub>e</sub> dari galat di luar sampel.</li>
         <li>Q-Learning: satu Q-table per bahan, state dari IP, prediksi, stok hampir kedaluwarsa, dan penanda ROP; aksi kelipatan kemasan.</li>
-        <li>Simulasi K1, K2, K3 pada 28 hari terakhir dan laporan Excel.</li>
+        <li>Simulasi K2, K3, K4 pada 28 hari terakhir, K1–K4 pada periode barang masuk aktual, dan laporan Excel.</li>
         <li>Model produksi dilatih ulang dengan semua data, lalu menjadi model aktif.</li>
       </ol>
       {% if pengguna.peran == "admin" %}
@@ -30,7 +30,7 @@
               data-konfirmasi="Mulai pelatihan lengkap? Proses ini memakan waktu sekitar 10–20 menit.">
           <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="jenis" value="lengkap">
           <h3>Pelatihan lengkap</h3>
-          <p class="kecil">Grid search XGBoost, pemilihan α dan γ di data validasi, dan pengujian K3 dengan beberapa seed. Dipakai untuk hasil skripsi. ± 10–20 menit.</p>
+          <p class="kecil">Grid search XGBoost, pemilihan α dan γ di data validasi, dan pengujian K4 dengan beberapa seed. Dipakai untuk hasil skripsi. ± 10–20 menit.</p>
           <button class="tombol" type="submit" {{ "disabled" if berjalan }} data-memproses="Memulai...">{{ ikon("otak", "ikon-k") }} Latih Lengkap</button>
         </form>
         <form method="post" action="/pelatihan/mulai" class="kartu" style="padding:18px 20px;box-shadow:none"
@@ -49,7 +49,7 @@
   <div class="kartu">
     <div class="kartu-kepala"><h2>Model aktif</h2></div>
     {% if aktif %}
-    {% set rk = aktif.ringkasan or {} %}
+    {% set rk = ringkasan[aktif.id] %}
     <div class="kartu-isi">
       <dl class="rincian">
         <dt>Model</dt><dd>#{{ aktif.id }} ({{ aktif.jenis }})</dd>
@@ -59,7 +59,7 @@
         {% if rk.ql_params %}<dt>Q-Learning</dt><dd>α {{ rk.ql_params.alpha | angka(2) }}, γ {{ rk.ql_params.gamma | angka(2) }}, {{ rk.ql_params.episode | angka }} episode</dd>{% endif %}
         {% if rk.TC_utama %}<dt>Biaya uji {{ (rk.n_utama ~ " bahan target") if rk.bahan_target else "bahan utama" }}</dt><dd>{% for v, x in rk.TC_utama.items() %}{{ v }} {{ x | rupiah }}{{ "<br>" | safe if not loop.last }}{% endfor %}</dd>{% endif %}
       </dl>
-      <p class="kecil" style="margin-bottom:0"><a href="/evaluasi">Evaluasi prediksi</a> · <a href="/simulasi">Simulasi K1/K2/K3</a></p>
+      <p class="kecil" style="margin-bottom:0"><a href="/evaluasi">Evaluasi prediksi</a> · <a href="/simulasi">Simulasi K1–K4</a></p>
     </div>
     {% else %}
     <div class="kartu-isi">Belum ada model aktif.</div>
@@ -78,16 +78,16 @@
   <div class="kartu-kepala"><h2>Riwayat pelatihan</h2></div>
   <div class="tabel-wadah">
   <table class="tabel rapat">
-    <thead><tr><th>#</th><th>Mulai</th><th>Jenis</th><th>Data</th><th>Status</th><th class="angka">Biaya K1 / K2 / K3 (bahan utama atau target)</th><th>Oleh</th><th></th></tr></thead>
+    <thead><tr><th>#</th><th>Mulai</th><th>Jenis</th><th>Data</th><th>Status</th><th class="angka">Biaya K2 / K3 / K4 (bahan utama atau target)</th><th>Oleh</th><th></th></tr></thead>
     <tbody>
     {% for r in runs %}
-      {% set tc = (r.ringkasan or {}).get("TC_utama") or {} %}
+      {% set tc = ringkasan[r.id].get("TC_utama") or {} %}
       <tr>
         <td>{{ r.id }}</td><td>{{ r.mulai | waktu }}</td><td>{{ r.jenis }}</td>
         <td>{{ r.data_mulai | tgl if r.data_mulai else "-" }} – {{ r.data_sampai | tgl if r.data_sampai else "-" }}</td>
         <td>{% if r.aktif %}<span class="status hijau">aktif</span>{% elif r.status == "selesai" %}<span class="status abu">selesai</span>
           {% elif r.status == "berjalan" %}<span class="status biru">berjalan</span>{% else %}<span class="status merah">gagal</span>{% endif %}</td>
-        <td class="angka">{% if tc %}{{ tc.K1 | rupiah }} / {{ tc.K2 | rupiah }} / <b>{{ tc.K3 | rupiah }}</b>{% if (r.ringkasan or {}).get("n_utama") %}<br><span class="kecil">{{ r.ringkasan.n_utama }} bahan {{ "target" if r.ringkasan.bahan_target else "utama" }}</span>{% endif %}{% else %}-{% endif %}</td>
+        <td class="angka">{% if tc %}{{ tc.K2 | rupiah }} / {{ tc.K3 | rupiah }} / <b>{{ tc.K4 | rupiah }}</b>{% if (r.ringkasan or {}).get("n_utama") %}<br><span class="kecil">{{ r.ringkasan.n_utama }} bahan {{ "target" if r.ringkasan.bahan_target else "utama" }}</span>{% endif %}{% else %}-{% endif %}</td>
         <td>{{ r.dibuat_oleh }}</td>
         <td class="nowrap">
           {% if r.status == "selesai" %}<a class="tautan-aksi" href="/laporan/{{ r.id }}/simulasi" title="Laporan simulasi">{{ ikon("unduh", "ikon-k") }}</a>{% endif %}

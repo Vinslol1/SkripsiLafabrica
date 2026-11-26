@@ -40,7 +40,7 @@ SECRET_KEY = _kunci_rahasia()
 FILE_STOK_KELUAR = DATA_AWAL / "Stok_Keluar_Harian_Bahan_Baku.xlsx"
 FILE_EKSPOR_BAHAN = DATA_AWAL / "Ekspor_Daftar_Bahan_Baku_28okt.xlsx"
 FILE_RESEP = DATA_AWAL / "Ekspor_Resep_Produk_LF_13okt.xlsx"
-FOLDER_CATATAN = DATA_AWAL / "catatan_manual"         # catatan WhatsApp order dan barang masuk (K1 aktual)
+FOLDER_CATATAN = DATA_AWAL / "catatan_manual"         # catatan WhatsApp order dan barang masuk (K1)
 
 NAMA_OUTLET = "Lafabrica Coffee"
 NAMA_APLIKASI = "PrediStok"
@@ -108,6 +108,10 @@ QL_MODE_ALPHA = "tetap"       # "tetap" = Persamaan (17); "tak_bias" = langkah t
 QL_MIN_KUNJUNGAN = 1          # aksi dipakai saat inferensi bila pernah dicoba sekian kali pada state itu
 QL_TUNING_GRID = {"alpha": [0.05, 0.1, 0.2], "gamma": [0.9, 0.95]}
 
-# ---------------- Simulasi K1/K2/K3 ----------------
+# ---------------- Simulasi K1–K4 ----------------
 SIM_STOK_AWAL = [0.0, 0.5, 1.0, 2.0, 3.0]   # kelipatan rata-rata pemakaian harian
 SIM_SEED = [11, 22, 33, 44, 55]
+# Augmentasi data historis K1: barang masuk yang tercatat di catatan WhatsApp tidak lengkap (mis. Fresh Milk), padahal
+# pemakaian di stok keluar benar-benar terjadi. True = kekurangan stok K1 dilengkapi dengan barang masuk tambahan
+# tepat sebesar kekurangan itu (dicatat terpisah sebagai data augmentasi), sehingga K1 tidak pernah kehabisan stok.
+K1_LENGKAPI = True

@@ -4,7 +4,7 @@ Dijalankan otomatis oleh run.py setiap kali aplikasi dimulai. Bila basis data ma
   - pengguna admin (kata sandi wajib diganti),
   - data master bahan baku (ekspor majoo + estimasi harga/kemasan/masa simpan, ditandai sebagai asumsi),
   - stok keluar harian sejak Juli 2026 (file Stok_Keluar_Harian_Bahan_Baku.xlsx),
-  - catatan manual order dan barang masuk cafe (data_awal/catatan_manual/*.txt) untuk K1 aktual,
+  - catatan manual order dan barang masuk cafe (data_awal/catatan_manual/*.txt) untuk K1,
   - model hasil pelatihan awal (artefak/ dan laporan/) sebagai model aktif.
 
 Bila basis data berasal dari versi sebelumnya, data bawaan yang lebih baru ditambahkan tanpa mengubah data yang
@@ -31,7 +31,7 @@ from app.models import Bahan, CatatanBarang, ModelRun, PencatatanHarian, Penggun
 
 BERKAS_MODEL = ["xgb_model.json", "xgb_meta.json", "qtable.npz", "qtable_meta.json", "evaluasi.json"]
 BERKAS_MODEL_OPSIONAL = ["simulasi_harian.npz"]     # rincian harian simulasi; model lama tidak memilikinya
-BERKAS_LAPORAN = ["evaluasi_xgboost.xlsx", "simulasi_K1_K2_K3.xlsx"]
+BERKAS_LAPORAN = ["evaluasi_xgboost.xlsx", "simulasi_K1_K2_K3_K4.xlsx"]   # model lama: simulasi_K1_K2_K3.xlsx
 # Pengaturan internal: sidik berkas data_awal yang sudah dimasukkan, agar pemeriksaan saat mulai cukup sekali.
 KUNCI_DATA_AWAL = "data_awal_terpakai"
 # Tanda asumsi pada bahan -> kolom yang dihitung dari data bawaan (ml.master.susun_master)
@@ -349,7 +349,9 @@ def lengkapi_dari_data_awal(db, log=print):
 
 
 def ringkasan_run(ev: dict) -> dict:
-    out = {"best_params": ev.get("best_params"), "ql_params": ev.get("ql_params"), "periode_uji": ev.get("periode_uji"),
+    from ml import penamaan as PN
+    ev = PN.seragamkan(ev)
+    out = {PN.PENANDA: PN.VERSI, "best_params": ev.get("best_params"), "ql_params": ev.get("ql_params"), "periode_uji": ev.get("periode_uji"),
            "xgb_menang_ma7": ev.get("xgb_menang_ma7"), "xgb_n_bahan": ev.get("xgb_n_bahan")}
     for kel in ("utama", "semua"):
         t = ev.get("kebijakan", {}).get(kel, {}).get("total", {})

@@ -21,7 +21,7 @@ LABEL = {
     "biaya_pesan": "Biaya per pesanan satu bahan, c_o (Rp)",
     "biaya_simpan_persen": "Biaya simpan per hari, c_h (% harga beli)",
     "ql_episode": "Jumlah episode pelatihan Q-Learning",
-    "ql_seed": "Jumlah seed pengujian K3",
+    "ql_seed": "Jumlah seed pengujian K4",
     "ql_tuning": "Pilih alpha dan gamma pada periode validasi",
     "xgb_grid_search": "Grid search hiperparameter XGBoost",
 }

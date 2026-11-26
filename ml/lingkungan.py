@@ -35,6 +35,10 @@ class Lingkungan:
         """Posisi persediaan pada akhir hari = stok di tangan (pesanan L=1 sudah tiba pagi tadi)."""
         return self.stok.sum(1)
 
+    def tersedia_besok(self) -> np.ndarray:
+        """Stok yang masih bisa dipakai besok pagi (setelah batch yang melewati masa simpan dibuang)."""
+        return (self.stok * ~self.mask_buang).sum(1)
+
     def hampir_kedaluwarsa(self, L: int = 1) -> np.ndarray:
         """E_t: stok yang melewati masa simpan dalam L hari ke depan."""
         umur = np.arange(self.A)[None, :]

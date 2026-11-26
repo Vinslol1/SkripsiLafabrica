@@ -1,4 +1,4 @@
-"""Analisis Model: Prediksi Kebutuhan, Evaluasi Prediksi, Simulasi Kebijakan K1/K2/K3, Pelatihan Ulang."""
+"""Analisis Model: Prediksi Kebutuhan, Evaluasi Prediksi, Simulasi Kebijakan K1–K4, Pelatihan Ulang."""
 import math
 from datetime import date, timedelta
 from functools import lru_cache
@@ -17,12 +17,14 @@ from app.layanan import pelatihan as PL
 from app.layanan import stok as ST
 from app.models import Bahan, ModelRun
 from app.web import angka, angka_pas, bersih, flash, ke, render
+from ml import penamaan as PN
 from ml import rincian as RC
 from ml import simulasi as SIM
 
 router = APIRouter(dependencies=[Depends(pengguna_aktif)])
 
-LAPORAN = {"evaluasi": "evaluasi_xgboost.xlsx", "simulasi": "simulasi_K1_K2_K3.xlsx"}
+LAPORAN = {"evaluasi": "evaluasi_xgboost.xlsx", "simulasi": "simulasi_K1_K2_K3_K4.xlsx"}
+LAPORAN_LAMA = {"simulasi": "simulasi_K1_K2_K3.xlsx"}     # model sebelum penamaan K1-K4 (ml/penamaan.py)
 
 
 @router.get("/prediksi")
@@ -103,7 +105,7 @@ def simulasi(request: Request, kelompok: str = "utama", db: Session = Depends(ge
     per = []
     if ev:
         per = [r for r in ev["per_bahan"] if kelompok == "semua" or r.get("utama")]
-        per.sort(key=lambda r: -(r.get("K1_TC") or 0))
+        per.sort(key=lambda r: -(r.get("K2_TC") or 0))
     return render(request, "simulasi.html", menu="simulasi", ev=ev, per=per, kelompok=kelompok, model=model)
 
 
@@ -131,7 +133,7 @@ def _bagian_rincian(bag: dict, sku: str, varian: tuple, awal: float, seed: int, 
     b = bag["skus"].index(sku)
     pil = RC.pilihan_run(bag, varian[0])
     awal = _pilih_awal(awal, pil["awal"], bawaan_awal)
-    seeds = RC.pilihan_run(bag, "K3")["seed"]
+    seeds = RC.pilihan_run(bag, "K4")["seed"]
     seed = seed if seed in seeds else (seeds[0] if seeds else 0)
     hari = {v: RC.harian_run(bag, v, b, awal, seed) for v in varian}
     hari = {v: df for v, df in hari.items() if df is not None}
@@ -162,11 +164,11 @@ def _bilangan(teks: str, bawaan: float) -> float:
 
 
 @router.get("/simulasi/bahan/{sku}")
-def simulasi_bahan(request: Request, sku: str, awal: str = "", seed: str = "", tampil: str = "K3",
-                   awal_aktual: str = "", tampil_aktual: str = "K1A", db: Session = Depends(get_db)):
+def simulasi_bahan(request: Request, sku: str, awal: str = "", seed: str = "", tampil: str = "K4",
+                   awal_aktual: str = "", tampil_aktual: str = "K1", db: Session = Depends(get_db)):
     """Rincian simulasi satu bahan: asal setiap komponen biaya, neraca barang, dan sisa stok setiap hari.
     awal = tingkat stok awal run yang ditampilkan (kelipatan rata-rata pemakaian; -1 = taksiran stok awal aktual),
-    seed = seed K3 (mulai 1), tampil = kebijakan pada tabel catatan harian."""
+    seed = seed K4 (mulai 1), tampil = kebijakan pada tabel catatan harian."""
     awal = _bilangan(awal, RC.AWAL_CONTOH)
     awal_aktual = _bilangan(awal_aktual, SIM.STOK_AWAL_TAKSIRAN)
     seed = int(_bilangan(seed, 1))
@@ -199,6 +201,8 @@ def unduh_laporan(run_id: int, nama: str, db: Session = Depends(get_db)):
     if run is None or nama not in LAPORAN:
         return ke("/simulasi")
     f = MA.folder_run(run) / LAPORAN[nama]
+    if not f.exists() and nama in LAPORAN_LAMA:
+        f = MA.folder_run(run) / LAPORAN_LAMA[nama]
     if not f.exists():
         return ke("/simulasi")
     return FileResponse(f, filename=f"{f.stem}_run{run_id}.xlsx")
@@ -211,8 +215,9 @@ def pelatihan(request: Request, db: Session = Depends(get_db)):
     t = ST.tanggal_tercatat_terakhir(db)
     aktif = next((r for r in runs if r.aktif), None)
     data_baru = (t - aktif.data_sampai).days if (aktif and t and aktif.data_sampai) else None
+    ringkasan = {r.id: PN.seragamkan(dict(r.ringkasan or {})) for r in runs}     # riwayat lama: kode K1A/K1/K2/K3
     return render(request, "pelatihan.html", menu="pelatihan", runs=runs, berjalan=berjalan, t=t, aktif=aktif,
-                  data_baru=data_baru)
+                  data_baru=data_baru, ringkasan=ringkasan)
 
 
 @router.post("/pelatihan/mulai")

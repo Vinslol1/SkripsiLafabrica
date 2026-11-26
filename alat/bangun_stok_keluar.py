@@ -1,8 +1,8 @@
 """Stok keluar harian per bahan baku = transaksi penjualan majoo x resep produk (pra-pemrosesan data).
 
-    python alat/bangun_stok_keluar.py --sampai 2026-11-10 \
+    python alat/bangun_stok_keluar.py --sampai 2026-11-23 \
         data_awal/penjualan/Uptodate_25_oktober.xlsx data_awal/penjualan/detil_penjualan_2026_11_03.xlsx \
-        data_awal/penjualan/detil_penjualan_2026_11_11.xlsx
+        data_awal/penjualan/detil_penjualan_2026_11_11.xlsx data_awal/penjualan/detil_penjualan_2026_11_24.xlsx
 
 File transaksi = ekspor Detail Penjualan majoo (header tabel boleh di bawah judul laporan), boleh lebih dari satu.
 Bila satu tanggal ada di beberapa file, transaksi tanggal itu diambil dari file yang disebut paling akhir.

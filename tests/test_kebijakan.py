@@ -100,7 +100,7 @@ def test_kapasitas_simpan_membatasi_aksi():
     ag.N[0, 0] = 1
     assert ag.greedy(np.array([0]), ip=np.array([12.0]))[0] == 1     # aksi 3..5 lebih murah tetapi tidak muat
     assert ag.greedy(np.array([0]))[0] == 3                           # tanpa batas kapasitas
-    assert ag.greedy(np.array([7]))[0] == -1                          # state belum pernah ditemui -> cadangan K2
+    assert ag.greedy(np.array([7]))[0] == -1                          # state belum pernah ditemui -> cadangan K3
 
 
 def test_jadwal_epsilon():
@@ -117,9 +117,9 @@ def _par(**ubah):
     return par
 
 
-def test_simulasi_k2_dengan_prediksi_sempurna_tanpa_kehabisan():
+def test_simulasi_k3_dengan_prediksi_sempurna_tanpa_kehabisan():
     d = np.full((1, 14), 10.0)
-    res = SIM.jalankan("K2", _par(), d, d, d, np.zeros(1), np.array([0.0]))
+    res = SIM.jalankan("K3", _par(), d, d, d, np.zeros(1), np.array([0.0]))
     assert res["FR"][0] == pytest.approx(1.0)
     assert res["hari_stockout"][0] == 0
     assert res["TC"][0] == pytest.approx(res["b_h"][0] + res["b_s"][0] + res["b_w"][0] + res["b_o"][0])
@@ -127,23 +127,24 @@ def test_simulasi_k2_dengan_prediksi_sempurna_tanpa_kehabisan():
 
 def test_simulasi_menghormati_kapasitas_simpan():
     d = np.full((1, 10), 10.0)
-    res = SIM.jalankan("K1", _par(kap=40), d, d, d, np.zeros(1), np.array([0.0]), catat_harian=True)
-    assert max(h["q"][0] for h in res["harian"]) <= 40           # Q tetap K1 = 100 dipangkas ke kapasitas
-    res = SIM.jalankan("K1", _par(), d, d, d, np.zeros(1), np.array([0.0]), catat_harian=True)
+    res = SIM.jalankan("K2", _par(kap=40), d, d, d, np.zeros(1), np.array([0.0]), catat_harian=True)
+    assert max(h["q"][0] for h in res["harian"]) <= 40           # Q tetap K2 = 100 dipangkas ke kapasitas
+    res = SIM.jalankan("K2", _par(), d, d, d, np.zeros(1), np.array([0.0]), catat_harian=True)
     assert max(h["q"][0] for h in res["harian"]) == 100
 
 
-def _par_k1a(n, kap=np.inf):
+def _par_k1(n, kap=np.inf):
     return {"k": np.ones(n), "tau": np.full(n, 5.0), "c_h": np.ones(n), "c_s": np.full(n, 10.0),
             "c_w": np.full(n, 5.0), "c_o": np.full(n, 100.0), "rop1": np.zeros(n), "q1": np.zeros(n),
             "kap": np.full(n, kap)}
 
 
-def test_k1_aktual_memutar_ulang_barang_masuk_tanpa_batas_kapasitas():
-    par = _par_k1a(2, kap=1.0)
+def test_k1_memutar_ulang_barang_masuk_tanpa_batas_kapasitas():
+    par = _par_k1(2, kap=1.0)
     par["q_aktual"] = np.array([[10.0, 0, 0, 5], [0, 0, 0, 0]])
+    par["k1_lengkapi"] = False                               # data historis apa adanya, tanpa augmentasi
     d = np.array([[3.0, 3, 3, 3], [1, 1, 1, 1]])
-    r = SIM.jalankan("K1A", par, d, d, d, np.zeros(2), np.array([0.0, 2.0]))
+    r = SIM.jalankan("K1", par, d, d, d, np.zeros(2), np.array([0.0, 2.0]))
     assert r["total_diterima"].tolist() == [15, 0]          # kapasitas 1 tidak memotong barang yang benar-benar datang
     assert r["jumlah_pesan"].tolist() == [2, 0]
     assert r["total_kurang"].tolist() == [0, 2]             # bahan kedua: stok awal 2 habis pada hari ketiga
@@ -154,10 +155,37 @@ def test_taksiran_stok_awal_aktual():
     d = np.array([[3.0, 3, 3, 3], [5, 5, 0, 0]])
     q = np.array([[10.0, 0, 0, 5], [0, 3, 0, 0]])
     assert SIM.taksir_stok_awal(d, q).tolist() == [0, 7]
-    par = _par_k1a(2)
+    par = _par_k1(2)
     par["q_aktual"] = q
-    r = SIM.jalankan("K1A", par, d, d, d, np.zeros(2), SIM.taksir_stok_awal(d, q))
-    assert r["total_kurang"].tolist() == [0, 0]             # dari taksiran stok awal, K1 aktual tidak kehabisan stok
+    r = SIM.jalankan("K1", par, d, d, d, np.zeros(2), SIM.taksir_stok_awal(d, q))
+    assert r["total_kurang"].tolist() == [0, 0]             # dari taksiran stok awal, K1 tidak kehabisan stok
+
+
+def test_k1_augmentasi_melengkapi_kekurangan_dan_kedaluwarsa():
+    """Augmentasi K1: kekurangan (termasuk karena stok kedaluwarsa) dilengkapi tepat sebesar kekurangan."""
+    par = _par_k1(2)                                        # masa simpan 5 hari, kemasan 1
+    par["tau"] = np.array([5.0, 2.0])
+    par["q_aktual"] = np.array([[10.0, 0, 0, 5], [6.0, 0, 0, 0]])
+    par["k1_lengkapi"] = True
+    d = np.array([[3.0, 3, 3, 3], [1, 1, 1, 1]])
+    r = SIM.jalankan("K1", par, d, d, d, np.zeros(2), np.array([0.0, 0.0]), catat_harian=True)
+    assert r["total_kurang"].tolist() == [0, 0]             # K1 tidak pernah kehabisan stok
+    assert r["hari_stockout"].tolist() == [0, 0]
+    tambah = np.stack([h["tambah"] for h in r["harian"]], 1)
+    # bahan 1: 10 masuk hari 1 cukup sampai hari 3 (sisa 1), hari 4 datang 5 -> tidak perlu tambahan
+    assert tambah[0].tolist() == [0, 0, 0, 0]
+    # bahan 2: masa simpan 2 hari, 6 masuk hari 1 dipakai hari 1-2, sisanya dibuang pagi hari 3 -> tambahan 1, 1
+    assert tambah[1].tolist() == [0, 0, 1, 1]
+    assert r["total_tambahan"].tolist() == [0, 2]
+    assert r["total_diterima"].tolist() == [15, 8]          # barang datang = tercatat + tambahan
+
+
+def test_taksiran_stok_awal_dibatasi_masa_simpan():
+    d = np.array([[3.0, 3, 3, 3]])
+    q = np.zeros((1, 4))
+    assert SIM.taksir_stok_awal(d, q).tolist() == [12]
+    assert SIM.taksir_stok_awal(d, q, tau=np.array([3.0])).tolist() == [6]   # stok awal hanya terpakai 2 hari
+    assert SIM.taksir_stok_awal(d, q, tau=np.array([1.0])).tolist() == [0]
 
 
 def test_jendela_aktual_berhenti_di_hari_tanpa_laporan():
@@ -173,7 +201,7 @@ def test_evaluasi_aktual_memilih_bahan_dan_skenario_stok_awal():
     from ml.pipeline import evaluasi_aktual
     sp = {"val_end": pd.Timestamp("2026-10-20"), "test_end": pd.Timestamp("2026-10-26")}   # uji 21-26 Okt
     skus = ["A", "B", "C"]
-    par = {**_par_k1a(3), "sigma": np.zeros(3), "d_bar": np.full(3, 2.0), "edges": [None] * 3}
+    par = {**_par_k1(3), "sigma": np.zeros(3), "d_bar": np.full(3, 2.0), "edges": [None] * 3}
     d = np.full((3, 6), 2.0)
     baris = pd.DataFrame({"tanggal": pd.to_datetime(["2026-10-24", "2026-10-25", "2026-10-24", "2026-10-24"]),
                           "sku": ["A", "A", "B", "X"], "jumlah": [4.0, 2.0, np.nan, 1.0]})
@@ -187,10 +215,10 @@ def test_evaluasi_aktual_memilih_bahan_dan_skenario_stok_awal():
     assert a["n_tanpa_masuk"] == 1 and a["tanpa_masuk"] == ["C"]   # C terpakai tetapi tidak punya barang masuk
     assert a["stok_awal"].tolist() == [0.0]                  # 4 + 2 cukup untuk 2 + 2 + 2
     runs = a["runs"]
-    assert set(runs["varian"]) == {"K1A", "K1", "K2"}        # tanpa agen, K3 dilewati
+    assert set(runs["varian"]) == {"K1", "K2", "K3"}        # tanpa agen, K4 dilewati
     assert sorted(runs["stok_awal"].unique()) == [SIM.STOK_AWAL_TAKSIRAN, 0.0, 0.5, 1.0, 2.0, 3.0]
-    k1a = runs[(runs["varian"] == "K1A") & (runs["stok_awal"] == SIM.STOK_AWAL_TAKSIRAN)].iloc[0]
-    assert k1a["total_kurang"] == 0 and k1a["total_diterima"] == 6
+    k1 = runs[(runs["varian"] == "K1") & (runs["stok_awal"] == SIM.STOK_AWAL_TAKSIRAN)].iloc[0]
+    assert k1["total_kurang"] == 0 and k1["total_diterima"] == 6
 
 
 def test_rincian_harian_sama_dengan_total_run_dan_neraca_seimbang():
@@ -201,11 +229,11 @@ def test_rincian_harian_sama_dengan_total_run_dan_neraca_seimbang():
     from ml import rincian as RC
     n, T = 2, 12
     d = np.random.default_rng(3).integers(0, 15, size=(n, T)).astype(float)
-    par = {**_par_k1a(n), "k": np.array([5.0, 1.0]), "tau": np.array([3.0, 10.0]), "rop1": np.array([12.0, 4.0]),
+    par = {**_par_k1(n), "k": np.array([5.0, 1.0]), "tau": np.array([3.0, 10.0]), "rop1": np.array([12.0, 4.0]),
            "q1": np.array([20.0, 6.0]), "c_h": np.array([0.2, 0.05])}
     harian = {}
-    runs = SIM.evaluasi(par, d, d, d, np.ones(n), varian=("K1", "K2"), d_bar=d.mean(1), harian=harian)
-    assert set(harian) == {"K1", "K2"} and harian["K1"]["I"].shape == (n * len(SIM.C.SIM_STOK_AWAL), T)
+    runs = SIM.evaluasi(par, d, d, d, np.ones(n), varian=("K2", "K3"), d_bar=d.mean(1), harian=harian)
+    assert set(harian) == {"K2", "K3"} and harian["K2"]["I"].shape == (n * len(SIM.C.SIM_STOK_AWAL), T)
     bag = {"skus": ["A", "B"], "tanggal": [str(x.date()) for x in pd.date_range("2026-10-06", periods=T)], "d": d,
            "par": {p: np.asarray(par[p], float) for p in ("c_h", "c_s", "c_w", "c_o")}, "runs": harian}
     for r in runs.itertuples():

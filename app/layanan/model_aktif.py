@@ -57,7 +57,8 @@ class ModelAktif:
         if not f.exists():
             return None
         from app.web import bersih
-        return bersih(json.loads(f.read_text(encoding="utf-8")))
+        from ml.penamaan import seragamkan
+        return bersih(seragamkan(json.loads(f.read_text(encoding="utf-8"))))
 
 
 def ambil(db: Session) -> ModelAktif | None:

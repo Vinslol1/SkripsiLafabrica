@@ -47,8 +47,8 @@
 <form class="saring" method="get" action="#{{ jangkar }}">
   <label class="isian" style="flex-direction:row;align-items:center;gap:10px">Stok awal
     <select name="{{ kunci_awal }}" data-otomatis>{% for a, label in bag.label_awal %}<option value="{{ a }}" {{ "selected" if a == bag.awal }}>{{ label }}</option>{% endfor %}</select></label>
-  {% if "K3" in rk and bag.seeds | length > 1 %}
-  <label class="isian" style="flex-direction:row;align-items:center;gap:10px">Seed K3
+  {% if "K4" in rk and bag.seeds | length > 1 %}
+  <label class="isian" style="flex-direction:row;align-items:center;gap:10px">Seed K4
     <select name="seed" data-otomatis>{% for s in bag.seeds %}<option value="{{ s + 1 }}" {{ "selected" if s == bag.seed }}>{{ s + 1 }}</option>{% endfor %}</select></label>
   {% endif %}
   {% for k, v in request.query_params.items() if k not in (kunci_awal, "seed") %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
@@ -75,16 +75,17 @@
   </div></div></div>
 <div class="tabel-wadah" style="max-height:640px;overflow:auto">
 <table class="tabel rapat">
-  <thead><tr><th>Tanggal</th><th class="angka">Stok sebelum</th>{% if bag.tampil != "K1A" %}<th class="angka">ROP</th>{% endif %}
-    {% if aktual %}<th class="angka">Masuk tercatat</th>{% endif %}<th class="angka">Datang</th><th class="angka">Terbuang</th>
+  <thead><tr><th>Tanggal</th><th class="angka">Stok sebelum</th>{% if bag.tampil != "K1" %}<th class="angka">ROP</th>{% endif %}
+    {% if aktual %}<th class="angka">Masuk tercatat</th>{% endif %}{% if aktual and bag.tampil == "K1" %}<th class="angka" title="data augmentasi: pembelian yang tidak tercatat, ditambahkan tepat sebesar kekurangan agar stok cukup untuk pemakaian aktual">Tambahan (augmentasi)</th>{% endif %}<th class="angka">Datang</th><th class="angka">Terbuang</th>
     <th class="angka">Pemakaian</th><th class="angka">Terpenuhi</th><th class="angka">Kurang</th><th class="angka" title="sisa stok setelah pemakaian hari itu, setara hasil stok opname">Sisa akhir</th>
     <th class="angka">Simpan (Rp)</th><th class="angka">Kehabisan (Rp)</th><th class="angka">Terbuang (Rp)</th><th class="angka">Pesan (Rp)</th><th class="angka">Total (Rp)</th></tr></thead>
   <tbody>
   {% for h in bag.tabel %}
     <tr><td style="white-space:nowrap">{{ (h.tanggal | tgl)[:6] }}</td><td class="angka">{{ h.stok_sebelum | angka(1) }}</td>
-      {% if bag.tampil != "K1A" %}<td class="angka {{ 'tebal' if h.datang > 0 }}">{{ h.rop | angka(1) }}</td>{% endif %}
+      {% if bag.tampil != "K1" %}<td class="angka {{ 'tebal' if h.datang > 0 }}">{{ h.rop | angka(1) }}</td>{% endif %}
       {% if aktual %}<td class="angka">{{ h.masuk_tercatat | angka(1) }}</td>{% endif %}
-      <td class="angka {{ 'tebal' if h.datang > 0 }}">{{ h.datang | angka(1) if h.datang > 0 else "-" }}{% if h.cadangan %} <span class="kecil" title="state belum pernah ditemui saat pelatihan, memakai aturan K2">(cadangan)</span>{% endif %}</td>
+      {% if aktual and bag.tampil == "K1" %}<td class="angka {{ 'tebal' if h.tambahan > 0 }}">{{ h.tambahan | angka(1) if h.tambahan > 0 else "-" }}</td>{% endif %}
+      <td class="angka {{ 'tebal' if h.datang > 0 }}">{{ h.datang | angka(1) if h.datang > 0 else "-" }}{% if h.cadangan %} <span class="kecil" title="state belum pernah ditemui saat pelatihan, memakai aturan K3">(cadangan)</span>{% endif %}</td>
       <td class="angka {{ 'minus' if h.terbuang > 0 }}">{{ h.terbuang | angka(1) if h.terbuang > 0 else "-" }}</td>
       <td class="angka">{{ h.pemakaian | angka(1) }}</td><td class="angka">{{ h.terpenuhi | angka(1) }}</td>
       <td class="angka {{ 'minus' if h.kurang > 0 }}">{{ h.kurang | angka(1) if h.kurang > 0 else "-" }}</td>
@@ -95,8 +96,9 @@
   {% endfor %}
   </tbody>
   {% if bag.tampil in rk %}{% set t = rk[bag.tampil] %}
-  <tfoot><tr class="tebal"><td>Jumlah</td><td class="angka">{{ t.stok_awal | angka(1) }}</td>{% if bag.tampil != "K1A" %}<td></td>{% endif %}
+  <tfoot><tr class="tebal"><td>Jumlah</td><td class="angka">{{ t.stok_awal | angka(1) }}</td>{% if bag.tampil != "K1" %}<td></td>{% endif %}
     {% if aktual %}<td class="angka">{{ bag.tabel | sum(attribute="masuk_tercatat") | angka(1) }}</td>{% endif %}
+    {% if aktual and bag.tampil == "K1" %}<td class="angka">{{ bag.tabel | sum(attribute="tambahan") | angka(1) }}</td>{% endif %}
     <td class="angka">{{ t.datang | angka(1) }}</td><td class="angka">{{ t.terbuang | angka(1) }}</td><td class="angka">{{ t.pemakaian | angka(1) }}</td>
     <td class="angka">{{ t.terpenuhi | angka(1) }}</td><td class="angka">{{ t.kurang | angka(1) }}</td><td class="angka">{{ t.sisa_akhir | angka(1) }}</td>
     <td class="angka">{{ t.b_h | angka }}</td><td class="angka">{{ t.b_s | angka }}</td><td class="angka">{{ t.b_w | angka }}</td>
@@ -105,7 +107,7 @@
 </table>
 </div>
 <div class="kartu-isi kecil">Satuan {{ sat }}. Setiap baris: stok sebelum − terbuang + datang − terpenuhi = sisa akhir. Barang yang datang dipesan pada akhir hari sebelumnya
-  ketika stok sebelum ≤ ROP{% if "K3" in rk %} (K3: jumlahnya dipilih agen Q-Learning){% endif %}. Kolom Jumlah pada baris sisa akhir adalah sisa hari terakhir.</div>
+  ketika stok sebelum ≤ ROP{% if "K4" in rk %} (K4: jumlahnya dipilih agen Q-Learning){% endif %}. Kolom Jumlah pada baris sisa akhir adalah sisa hari terakhir.</div>
 {% endmacro %}
 
 {% block isi %}
@@ -124,51 +126,51 @@
     dan biaya pesan. Di bawah ini terlihat dasar perhitungan setiap komponen, neraca barang (dari stok awal sampai sisa stok akhir), dan catatan harian
     termasuk sisa stok setiap akhir hari, yaitu angka yang akan terlihat bila dilakukan stok opname setelah pemakaian hari itu.
     {% if uji %}<br>Satuan {{ sat }} · masa simpan {{ uji.par.tau | angka }} hari · isi kemasan {{ uji.par.k | angka_pas }} · rata-rata pemakaian {{ uji.par.d_bar | angka(1) }} per hari ·
-    ROP K1 {{ uji.par.rop1 | angka(1) }} · jumlah pesan K1 {{ uji.par.q1 | angka_pas }}{% if uji.par.kap is not none and uji.par.kap < 1e15 %} · kapasitas simpan {{ uji.par.kap | angka_pas }}{% endif %}{% endif %}
+    ROP K2 {{ uji.par.rop1 | angka(1) }} · jumlah pesan K2 {{ uji.par.q1 | angka_pas }}{% if uji.par.kap is not none and uji.par.kap < 1e15 %} · kapasitas simpan {{ uji.par.kap | angka_pas }}{% endif %}{% endif %}
   </div>
 </div>
 
-{% set lengkap = baris.get("K1_b_h") is not none %}
+{% set lengkap = baris.get("K2_b_h") is not none %}
 {% if not ada_rincian or not lengkap %}
 <div class="info kuning" style="margin-top:18px"><span class="i">!</span><div><b>Rincian belum tersedia untuk model ini</b>
   Model aktif dilatih sebelum rincian biaya dan catatan harian disimpan. Jalankan <a href="/pelatihan">Pelatihan Ulang</a> agar rincian setiap run ikut tersimpan.
-  {% if not lengkap %}Total biaya per bahan model ini: K1 statis {{ baris.K1_TC | rupiah }}, K2 {{ baris.K2_TC | rupiah }}, K3 {{ baris.K3_TC | rupiah }}.{% endif %}</div></div>
+  {% if not lengkap %}Total biaya per bahan model ini: K2 {{ baris.K2_TC | rupiah }}, K3 {{ baris.K3_TC | rupiah }}, K4 {{ baris.K4_TC | rupiah }}.{% endif %}</div></div>
 {% endif %}
 {% if lengkap %}
 
 <h2 style="margin:26px 0 0">Uji 28 hari ({{ ev.periode_uji[0] | tgl }} – {{ ev.periode_uji[1] | tgl }})</h2>
 <div class="kartu" style="margin-top:12px">
   <div class="kartu-kepala"><h2>Asal biaya</h2></div>
-  <div class="tabel-wadah">{{ asal_biaya(baris, ["K1", "K2", "K3"], uji.par if uji else none, sat, "Rata-rata 5 tingkat stok awal (K3 juga 5 seed).") }}</div>
+  <div class="tabel-wadah">{{ asal_biaya(baris, ["K2", "K3", "K4"], uji.par if uji else none, sat, "Rata-rata 5 tingkat stok awal (K4 juga 5 seed).") }}</div>
 </div>
 <div class="kartu" style="margin-top:18px">
   <div class="kartu-kepala"><h2>Neraca barang dan sisa stok</h2></div>
-  <div class="tabel-wadah">{{ neraca(baris, ["K1", "K2", "K3"], sat, ev.periode_uji[1]) }}</div>
+  <div class="tabel-wadah">{{ neraca(baris, ["K2", "K3", "K4"], sat, ev.periode_uji[1]) }}</div>
   <div class="kartu-isi kecil">Stok awal + barang datang = terpakai + terbuang + sisa stok akhir. Rata-rata semua run.</div>
 </div>
 {% if uji %}
 <div class="kartu" style="margin-top:18px" id="uji">
   <div class="kartu-kepala"><h2>Satu run: sisa stok dan biaya setiap hari</h2></div>
-  {{ harian(uji, ["K1", "K2", "K3"], sat, false, "awal", "tampil", "uji") }}
+  {{ harian(uji, ["K2", "K3", "K4"], sat, false, "awal", "tampil", "uji") }}
 </div>
 {% endif %}
 
-{% if baris_a and baris_a.get("K1A_b_h") is not none %}
-<h2 style="margin:26px 0 0">K1 aktual ({{ ev.aktual.periode[0] | tgl }} – {{ ev.aktual.periode[1] | tgl }}, {{ ev.aktual.n_hari }} hari)</h2>
+{% if baris_a and baris_a.get("K1_b_h") is not none %}
+<h2 style="margin:26px 0 0">Periode aktual K1–K4 ({{ ev.aktual.periode[0] | tgl }} – {{ ev.aktual.periode[1] | tgl }}, {{ ev.aktual.n_hari }} hari)</h2>
 <div class="kartu" style="margin-top:12px">
   <div class="kartu-kepala"><h2>Asal biaya</h2></div>
-  <div class="tabel-wadah">{{ asal_biaya(baris_a, ["K1A", "K1", "K2", "K3"], aktual.par if aktual else none, sat, "Dari taksiran stok awal aktual (K3: rata-rata 5 seed). K1 aktual = barang yang benar-benar diterima cafe.") }}</div>
+  <div class="tabel-wadah">{{ asal_biaya(baris_a, ["K1", "K2", "K3", "K4"], aktual.par if aktual else none, sat, "Dari taksiran stok awal aktual (K4: rata-rata 5 seed). K1 = barang yang benar-benar diterima cafe.") }}</div>
 </div>
 <div class="kartu" style="margin-top:18px">
   <div class="kartu-kepala"><h2>Neraca barang dan sisa stok</h2></div>
-  <div class="tabel-wadah">{{ neraca(baris_a, ["K1A", "K1", "K2", "K3"], sat, ev.aktual.periode[1]) }}</div>
+  <div class="tabel-wadah">{{ neraca(baris_a, ["K1", "K2", "K3", "K4"], sat, ev.aktual.periode[1]) }}</div>
   <div class="kartu-isi kecil">Barang masuk tercatat {{ baris_a.diterima_aktual | angka(1) }} {{ sat }}, pemakaian aktual {{ baris_a.pakai_aktual | angka(1) }} {{ sat }},
     taksiran stok awal {{ baris_a.stok_awal_taksiran | angka(1) }} {{ sat }}.</div>
 </div>
 {% if aktual %}
 <div class="kartu" style="margin-top:18px" id="aktual">
-  <div class="kartu-kepala"><h2>Satu run K1 aktual: sisa stok dan biaya setiap hari</h2></div>
-  {{ harian(aktual, ["K1A", "K1", "K2", "K3"], sat, true, "awal_aktual", "tampil_aktual", "aktual") }}
+  <div class="kartu-kepala"><h2>Satu run periode aktual: sisa stok dan biaya setiap hari</h2></div>
+  {{ harian(aktual, ["K1", "K2", "K3", "K4"], sat, true, "awal_aktual", "tampil_aktual", "aktual") }}
 </div>
 {% endif %}
 {% endif %}
@@ -181,7 +183,7 @@
 <script>
 (function () {
   const W = PrediStok.warna;
-  const warna = { K1A: W.ungu, K1: W.abu, K2: W.biru, K3: W.hijauTua };
+  const warna = { K1: W.ungu, K2: W.abu, K3: W.biru, K4: W.hijauTua };
   const nama = {{ nama_varian | json | safe }};
   function gambar(id, g, varian) {
     const ds = varian.filter((v) => g[v]).map((v) => ({ type: "line", label: "Sisa " + nama[v], data: g[v], borderColor: warna[v],
@@ -192,8 +194,8 @@
         plugins: { legend: { position: "bottom" }, tooltip: { callbacks: { label: (c) => c.dataset.label + ": " + PrediStok.angka(c.raw) } } },
         scales: { y: { beginAtZero: true, ticks: { callback: (v) => PrediStok.angka(v) } } } } });
   }
-  {% if uji %}gambar("grafik-uji", {{ uji.grafik | json | safe }}, ["K1", "K2", "K3"]);{% endif %}
-  {% if aktual %}gambar("grafik-aktual", {{ aktual.grafik | json | safe }}, ["K1A", "K1", "K2", "K3"]);{% endif %}
+  {% if uji %}gambar("grafik-uji", {{ uji.grafik | json | safe }}, ["K2", "K3", "K4"]);{% endif %}
+  {% if aktual %}gambar("grafik-aktual", {{ aktual.grafik | json | safe }}, ["K1", "K2", "K3", "K4"]);{% endif %}
 })();
 </script>
 {% endif %}

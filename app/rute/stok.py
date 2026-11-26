@@ -308,7 +308,7 @@ def template_keluar(tanggal: str = "", db: Session = Depends(get_db)):
 
 # ---------------------------------------------------------------- catatan barang masuk (laporan WhatsApp cafe)
 def _cakupan_catatan(db) -> dict | None:
-    """Rentang barang masuk tercatat dan perkiraan periode K1 aktual (irisan dengan stok keluar)."""
+    """Rentang barang masuk tercatat dan perkiraan periode uji aktual K1 (irisan dengan stok keluar)."""
     hari = [t for (t,) in db.query(CatatanBarang.tanggal).filter(CatatanBarang.jenis == "masuk").distinct()
             .order_by(CatatanBarang.tanggal).all()]
     if not hari:
@@ -329,7 +329,7 @@ def _simpan_catatan(request, db, df, sumber, oleh):
     h = CM.simpan_ke_db(db, df, sumber=sumber, oleh=oleh)
     rentang = (f" ({tgl(h['hari_masuk'][0])} s.d. {tgl(h['hari_masuk'][-1])})" if h["hari_masuk"] else "")
     flash(request, f"Catatan tersimpan: {h['masuk']} baris barang masuk{rentang} dan {h['order']} baris order. "
-                   f"{h['dipakai']} baris barang masuk dipakai K1 aktual.")
+                   f"{h['dipakai']} baris barang masuk dipakai K1.")
     if h["perlu_dicek"]:
         flash(request, f"{h['perlu_dicek']} baris barang masuk memakai asumsi (status perlu dicek). Unduh Excel, cek "
                        f"lembar Perlu Dicek, lalu impor kembali Excel yang sudah dikoreksi.", "peringatan")

@@ -111,7 +111,7 @@ class MutasiStok(Base):
 class CatatanBarang(Base):
     """Baris catatan manual cafe (laporan WhatsApp order dan barang masuk) yang sudah dirapikan.
 
-    Barang masuk dipakai simulasi K1 aktual; tabel ini terpisah dari mutasi stok sehingga tidak mengubah
+    Barang masuk dipakai simulasi K1; tabel ini terpisah dari mutasi stok sehingga tidak mengubah
     Daftar Stok. Jumlah dalam satuan dasar bahan (jumlah_dasar) kosong bila isi kemasannya belum diketahui.
     """
     __tablename__ = "catatan_barang"
