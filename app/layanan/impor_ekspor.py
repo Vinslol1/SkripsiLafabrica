@@ -221,7 +221,7 @@ def _sheet_petunjuk(wb: Workbook):
         "   isi kemasan beli (mis. susu 1 liter = 1000 gram), masa simpan (hari), dan kapasitas simpan maksimum",
         "   (berapa kemasan paling banyak yang muat disimpan). Kosongkan kapasitas bila belum diketahui;",
         "   PrediStok lalu memakai kapasitas otomatis dari pola pemakaian (stok target tertinggi + 20%, atau",
-        "   ROP + jumlah pesan kebijakan K1 bila lebih besar; paling sedikit 2 kemasan).",
+        "   ROP + jumlah pesan kebijakan K2 bila lebih besar; paling sedikit 2 kemasan).",
         "3. Bila semua nilai satu baris sudah benar, isi kolom 'Data sudah benar (Y/T)' dengan Y.",
         "4. Isi sheet 'Biaya Umum' (ongkos kirim per pesanan dan biaya simpan).",
         "5. Simpan file, lalu impor lewat menu Daftar Bahan Baku > Impor Bahan Baku.",

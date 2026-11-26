@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 {% from "_ikon.html" import ikon %}
-{% block judul %}Simulasi K1/K2/K3{% endblock %}
+{% block judul %}Simulasi K1–K4{% endblock %}
 {% block isi %}
 {% if not ev %}
 <div class="info merah"><span class="i">!</span><div><b>Belum ada hasil simulasi</b>Jalankan pelatihan untuk menghasilkan simulasi kebijakan.</div><a class="tautan" href="/pelatihan">Pelatihan Ulang</a></div>
 {% else %}
 {% set kb = ev.kebijakan[kelompok] %}
 {% set tot = kb.total %}
-{% set nama_varian = {"K1A": "K1 aktual · barang masuk cafe", "K1": "K1 statis · ROP statis + EOQ", "K2": "K2 · ROP dinamis + order-up-to", "K3": "K3 · ROP dinamis + Q-Learning"} %}
-{% set tc_min = [tot.K1.TC_mean, tot.K2.TC_mean, tot.K3.TC_mean] | min %}
+{% set nama_varian = {"K1": "K1 · data historis (barang masuk cafe)", "K2": "K2 · ROP statis + EOQ", "K3": "K3 · ROP dinamis + order-up-to", "K4": "K4 · ROP dinamis + Q-Learning"} %}
+{% set tc_min = [tot.K2.TC_mean, tot.K3.TC_mean, tot.K4.TC_mean] | min %}
 <div class="kartu">
   <div class="kartu-kepala">
     <h1>Simulasi Kebijakan Persediaan</h1>
@@ -25,7 +25,7 @@
   <div class="kartu-isi kecil">
     Ketiga kebijakan disimulasikan pada data uji {{ ev.periode_uji[0] | tgl }} – {{ ev.periode_uji[1] | tgl }} (28 hari, Tabel 4) dengan lingkungan yang sama:
     keputusan di akhir hari, pesanan tiba awal hari berikutnya (L = 1), stok dipakai FIFO dan dibuang setelah melewati masa simpan.
-    Setiap bahan dijalankan dari 5 tingkat stok awal (0; 0,5; 1; 2; 3 × rata-rata pemakaian harian){% if ev.ql_params %}; agen K3 dilatih {{ ev.ql_params.episode | angka }} episode
+    Setiap bahan dijalankan dari 5 tingkat stok awal (0; 0,5; 1; 2; 3 × rata-rata pemakaian harian){% if ev.ql_params %}; agen K4 dilatih {{ ev.ql_params.episode | angka }} episode
     dengan α = {{ ev.ql_params.alpha | angka(2) }}, γ = {{ ev.ql_params.gamma | angka(2) }} pada {{ ev.minggu_latih_agen | length }} minggu data sebelum periode uji, 5 seed{% endif %}.
     Angka di bawah adalah total seluruh bahan dalam kelompok, rata-rata atas semua run.
     {% if ev.pemilihan %}<b>Bahan target</b> = {{ ev.pemilihan.target | length }} bahan cepat rusak (masa simpan &le; {{ ev.pemilihan.aturan.masa_simpan_maks }} hari) yang paling sering dipakai dan paling besar nilai pemakaiannya,
@@ -35,27 +35,62 @@
 </div>
 
 {% set ak = ev.aktual %}
-<div class="kartu" style="margin-top:18px" id="k1-aktual">
-  <div class="kartu-kepala"><h2>K1 aktual: barang masuk cafe diputar ulang</h2>
+{% if ak and ak.status == "ok" %}
+{% set kbu = ak.kebijakan[kelompok] if ak.kebijakan[kelompok].n_bahan else ak.kebijakan.semua %}
+{% set tu = kbu.total %}
+{% set vu = ["K1", "K2", "K3", "K4"] | select("in", tu) | list %}
+{% set tcs_u = [] %}{% for v in vu %}{% set _ = tcs_u.append(tu[v].TC_mean) %}{% endfor %}{% set tu_min = tcs_u | min %}
+<div class="kartu" style="margin-top:18px" id="hasil-biaya">
+  <div class="kartu-kepala"><h2>Hasil simulasi biaya K1–K4</h2></div>
+  <div class="kartu-isi kecil" style="padding-bottom:0">
+    Keempat kebijakan pada hari dan bahan yang sama: {{ ak.periode[0] | tgl }} – {{ ak.periode[1] | tgl }} ({{ ak.n_hari }} hari{% if ak.n_hari < 28 %} dari
+    28 hari uji, karena barang masuk tercatat sampai {{ ak.periode[1] | tgl }}{% endif %}), {{ kbu.n_bahan }} bahan yang punya catatan barang masuk, mulai dari taksiran
+    stok awal aktual. K1 = barang yang benar-benar diterima cafe; K4 = rata-rata seed. Rinciannya ada di <a href="#uji-aktual">bagian K1</a> di bawah.
+  </div>
+  <div class="tabel-wadah">
+  <table class="tabel rapat" style="padding-right:16px">
+    <thead><tr><th>Komponen</th>{% for v in vu %}<th class="angka" style="text-transform:none;white-space:normal;max-width:150px">{{ nama_varian[v].split(" · ")[0] }}<br><span class="kecil" style="font-weight:400">{{ nama_varian[v].split(" · ")[1] }}</span></th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for c, label in [("b_h", "Biaya simpan"), ("b_s", "Biaya kehabisan"), ("b_w", "Biaya terbuang"), ("b_o", "Biaya pesan")] %}
+      <tr><td class="tebal" style="white-space:nowrap">{{ label }}</td>{% for v in vu %}{% set d = tu[v] %}<td class="angka">{{ d[c ~ "_mean"] | rupiah }}
+        <span class="kecil">({{ (d[c ~ "_mean"] / d.TC_mean) | persen(0) if d.TC_mean else "-" }})</span></td>{% endfor %}</tr>
+    {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr class="tebal"><td style="white-space:nowrap">Total biaya (TC)</td>{% for v in vu %}<td class="angka">{{ tu[v].TC_mean | rupiah }}{% if tu[v].TC_mean <= tu_min + 0.5 %}<br><span class="status hijau">terendah</span>{% endif %}</td>{% endfor %}</tr>
+      <tr><td style="white-space:nowrap">Fill rate rata-rata</td>{% for v in vu %}<td class="angka">{{ tu[v].FR_rata_mean | persen }}</td>{% endfor %}</tr>
+      <tr><td style="white-space:nowrap">Hari kehabisan stok (bahan-hari)</td>{% for v in vu %}<td class="angka">{{ tu[v].hari_stockout_mean | angka(1) }}</td>{% endfor %}</tr>
+      <tr><td style="white-space:nowrap">Pemesanan / kedatangan</td>{% for v in vu %}<td class="angka">{{ tu[v].jumlah_pesan_mean | angka(1) }}</td>{% endfor %}</tr>
+    </tfoot>
+  </table>
+  </div>
+</div>
+{% endif %}
+<div class="kartu" style="margin-top:18px" id="uji-aktual">
+  <div class="kartu-kepala"><h2>K1: barang masuk cafe diputar ulang</h2>
     <div class="aksi"><a class="tautan-aksi" href="/stok/catatan">Catatan Barang Masuk</a></div></div>
   <div class="kartu-isi kecil">
-    K1 aktual memakai barang yang benar-benar diterima cafe menurut catatan barang masuk WhatsApp: jumlah yang datang setiap hari
+    K1 memakai barang yang benar-benar diterima cafe menurut catatan barang masuk WhatsApp: jumlah yang datang setiap hari
     dimasukkan apa adanya ke lingkungan simulasi yang sama (pemakaian aktual, FIFO, masa simpan, biaya), lalu dibandingkan dengan
-    K1 statis, K2, dan K3 pada hari dan bahan yang sama. Semua kebijakan mulai dari <b>taksiran stok awal aktual</b>: stok terkecil
-    yang membuat barang masuk aktual cukup untuk pemakaian aktual setiap hari (pemakaian di stok keluar benar-benar terjadi, jadi stok
-    cafe paling sedikit sebesar itu). Hasil dari 5 tingkat stok awal seperti uji 28 hari ditampilkan sebagai uji kepekaan.
+    K2, K3, dan K4 pada hari dan bahan yang sama. Semua kebijakan mulai dari <b>taksiran stok awal aktual</b>: stok terkecil
+    yang membuat barang masuk aktual cukup untuk pemakaian aktual selama stok awal itu masih layak pakai (pemakaian di stok keluar
+    benar-benar terjadi, jadi stok cafe paling sedikit sebesar itu). Hasil dari 5 tingkat stok awal seperti uji 28 hari ditampilkan sebagai uji kepekaan.
+    {% if ak and ak.augmentasi %}<br><b>Data historis dilengkapi (augmentasi).</b> Catatan barang masuk WhatsApp tidak lengkap, padahal
+    penjualan benar-benar terjadi. Karena itu, bila stok layak pakai ditambah barang masuk tercatat kurang dari pemakaian hari itu,
+    selisihnya ditambahkan sebagai pembelian yang tidak tercatat (tepat sebesar kekurangan). K1 jadi tidak pernah kehabisan stok.
+    Jumlah tambahan ini ditampilkan terpisah dari barang masuk tercatat.{% endif %}
   </div>
   {% if not ak %}
-  <div class="kartu-isi"><div class="info kuning"><span class="i">!</span><div><b>Model aktif belum menghitung K1 aktual</b>
-    Model ini dilatih sebelum fitur K1 aktual ada. Jalankan <a href="/pelatihan">Pelatihan Ulang</a> agar catatan barang masuk ikut diuji.</div></div></div>
+  <div class="kartu-isi"><div class="info kuning"><span class="i">!</span><div><b>Model aktif belum menghitung K1</b>
+    Model ini dilatih sebelum fitur K1 ada. Jalankan <a href="/pelatihan">Pelatihan Ulang</a> agar catatan barang masuk ikut diuji.</div></div></div>
   {% elif ak.status != "ok" %}
-  <div class="kartu-isi"><div class="info kuning"><span class="i">!</span><div><b>K1 aktual belum bisa dihitung</b>
+  <div class="kartu-isi"><div class="info kuning"><span class="i">!</span><div><b>K1 belum bisa dihitung</b>
     {{ ak.pesan }}{% if ak.catatan %} Impor stok keluar majoo sampai {{ ak.catatan[1] | tgl }} di <a href="/stok/keluar">Stok Keluar Harian</a>, lalu jalankan
     <a href="/pelatihan">Pelatihan Ulang</a>.{% endif %}</div></div></div>
   {% else %}
   {% set kba = ak.kebijakan[kelompok] if ak.kebijakan[kelompok].n_bahan else ak.kebijakan.semua %}
   {% set ta = kba.total %}
-  {% set tcs_a = [] %}{% for v in ["K1A", "K1", "K2", "K3"] if v in ta %}{% set _ = tcs_a.append(ta[v].TC_mean) %}{% endfor %}
+  {% set tcs_a = [] %}{% for v in ["K1", "K2", "K3", "K4"] if v in ta %}{% set _ = tcs_a.append(ta[v].TC_mean) %}{% endfor %}
   {% set tca_min = tcs_a | min %}
   <div class="kartu-isi" style="padding-top:0">
     <div class="info {{ 'hijau' if ak.layak else 'kuning' }}"><span class="i">{{ 'i' if ak.layak else '!' }}</span><div>
@@ -77,7 +112,7 @@
     {% endif %}
   </div>
   <div class="grid empat" style="padding:0 22px 18px">
-    {% for v in ["K1A", "K1", "K2", "K3"] if v in ta %}
+    {% for v in ["K1", "K2", "K3", "K4"] if v in ta %}
     {% set d = ta[v] %}
     <div class="kartu statistik {{ 'hijau' if d.TC_mean <= tca_min + 0.5 }}" style="margin:0">
       <span class="label">{{ nama_varian[v].split(" · ")[0] }}{% if d.TC_mean <= tca_min + 0.5 %} <span class="status hijau">{{ ikon("bintang", "ikon-k") }} terendah</span>{% endif %}</span>
@@ -100,7 +135,7 @@
   <table class="tabel rapat">
     <thead><tr><th>Perbandingan</th><th class="angka">Lebih murah pada</th><th class="angka">Median rasio biaya</th><th class="angka">p Wilcoxon</th><th>Kesimpulan</th></tr></thead>
     <tbody>
-    {% for k, label in [("K3_vs_K1A", "K3 vs K1 aktual"), ("K2_vs_K1A", "K2 vs K1 aktual"), ("K1_vs_K1A", "K1 statis vs K1 aktual"), ("K3_vs_K2", "K3 vs K2")] if k in kba.banding %}
+    {% for k, label in [("K4_vs_K1", "K4 vs K1"), ("K3_vs_K1", "K3 vs K1"), ("K2_vs_K1", "K2 vs K1"), ("K4_vs_K3", "K4 vs K3")] if k in kba.banding %}
       {% set b = kba.banding[k] %}
       <tr><td class="tebal">{{ label }}</td><td class="angka">{{ b.menang }} / {{ b.dari }} bahan</td>
         <td class="angka">{{ b.rasio_median | angka(3) if b.rasio_median is not none else "-" }}</td>
@@ -114,43 +149,48 @@
   <div class="kartu-isi">
     <b>Uji kepekaan stok awal</b>
     <table class="tabel rapat" style="margin-top:8px">
-      <thead><tr><th>Stok awal</th>{% for v in ["K1A", "K1", "K2", "K3"] if v in ta %}<th class="angka">{{ nama_varian[v].split(" · ")[0] }}</th>{% endfor %}<th>K3 vs K1 aktual (p)</th></tr></thead>
+      <thead><tr><th>Stok awal</th>{% for v in ["K1", "K2", "K3", "K4"] if v in ta %}<th class="angka">{{ nama_varian[v].split(" · ")[0] }}</th>{% endfor %}<th>K4 vs K1 (p)</th></tr></thead>
       <tbody>
-        <tr><td>Taksiran stok awal aktual</td>{% for v in ["K1A", "K1", "K2", "K3"] if v in ta %}<td class="angka">{{ ta[v].TC_mean | rupiah }}</td>{% endfor %}
-          <td>{{ kba.banding.K3_vs_K1A.p_wilcoxon | angka(3) if kba.banding.K3_vs_K1A is defined else "-" }}</td></tr>
-        <tr><td>Rata-rata 5 tingkat (0; 0,5; 1; 2; 3 × rata-rata pemakaian)</td>{% for v in ["K1A", "K1", "K2", "K3"] if v in kb5.total %}<td class="angka">{{ kb5.total[v].TC_mean | rupiah }}</td>{% endfor %}
-          <td>{{ kb5.banding.K3_vs_K1A.p_wilcoxon | angka(3) if kb5.banding.K3_vs_K1A is defined else "-" }}</td></tr>
+        <tr><td>Taksiran stok awal aktual</td>{% for v in ["K1", "K2", "K3", "K4"] if v in ta %}<td class="angka">{{ ta[v].TC_mean | rupiah }}</td>{% endfor %}
+          <td>{{ kba.banding.K4_vs_K1.p_wilcoxon | angka(3) if kba.banding.K4_vs_K1 is defined else "-" }}</td></tr>
+        <tr><td>Rata-rata 5 tingkat (0; 0,5; 1; 2; 3 × rata-rata pemakaian)</td>{% for v in ["K1", "K2", "K3", "K4"] if v in kb5.total %}<td class="angka">{{ kb5.total[v].TC_mean | rupiah }}</td>{% endfor %}
+          <td>{{ kb5.banding.K4_vs_K1.p_wilcoxon | angka(3) if kb5.banding.K4_vs_K1 is defined else "-" }}</td></tr>
       </tbody>
     </table>
-    <p class="kecil" style="margin-bottom:0">K1 aktual tidak bereaksi terhadap stok simulasi (barang masuknya tetap seperti catatan), sehingga pada stok awal rendah
-      K1 aktual kehabisan stok yang sebenarnya tidak terjadi di cafe. Karena itu taksiran stok awal aktual dipakai sebagai skenario utama.</p>
+    <p class="kecil" style="margin-bottom:0">{% if ak.augmentasi %}Pada setiap tingkat stok awal, kekurangan K1 dilengkapi barang masuk tambahan
+      (augmentasi), jadi stok awal yang lebih rendah membuat tambahan lebih besar, bukan kehabisan stok.{% else %}K1 tidak bereaksi terhadap stok simulasi (barang masuknya tetap seperti catatan), sehingga pada stok awal rendah
+      K1 kehabisan stok yang sebenarnya tidak terjadi di cafe.{% endif %} Taksiran stok awal aktual dipakai sebagai skenario utama.</p>
   </div>
   <details class="kartu-isi">
     <summary class="tebal">Hasil per bahan ({{ ak.per_bahan | selectattr("utama") | list | length if kelompok == "utama" and ak.kebijakan.utama.n_bahan else ak.per_bahan | length }} bahan)</summary>
     <div class="tabel-wadah" style="max-height:520px;overflow:auto;margin-top:10px">
     <table class="tabel rapat">
-      <thead><tr><th>Bahan</th><th class="angka">Masuk / pakai aktual</th><th class="angka">Taksiran stok awal</th><th class="angka">Biaya K1 aktual</th><th class="angka">K1 statis</th><th class="angka">K2</th><th class="angka">K3</th>
-        <th class="angka">Fill rate K1 aktual / K2 / K3</th><th class="angka">Terbuang K1 aktual / K2 / K3</th></tr></thead>
+      <thead><tr><th>Bahan</th><th class="angka">Masuk tercatat / pakai aktual</th>{% if ak.augmentasi %}<th class="angka" title="data augmentasi">Tambahan (augmentasi)</th>{% endif %}<th class="angka">Taksiran stok awal</th><th class="angka">Biaya K1</th><th class="angka">K2</th><th class="angka">K3</th><th class="angka">K4</th>
+        <th class="angka">Fill rate K1 / K3 / K4</th><th class="angka">Terbuang K1 / K3 / K4</th></tr></thead>
       <tbody>
-      {% for r in ak.per_bahan | sort(attribute="K1A_TC", reverse=true) if r.utama or kelompok == "semua" or not ak.kebijakan.utama.n_bahan %}
+      {% for r in ak.per_bahan | sort(attribute="K1_TC", reverse=true) if r.utama or kelompok == "semua" or not ak.kebijakan.utama.n_bahan %}
         <tr><td><a href="/simulasi/bahan/{{ r.sku }}#aktual">{{ r.nama }}</a> <span class="kecil">{{ r.sku }}</span></td>
           <td class="angka">{{ r.diterima_aktual | angka_pas }} / {{ r.pakai_aktual | angka_pas }}</td>
+          {% if ak.augmentasi %}<td class="angka">{{ r.tambahan_augmentasi | angka_pas if r.tambahan_augmentasi else "-" }}{% if r.hari_augmentasi %} <span class="kecil">({{ r.hari_augmentasi }} hari)</span>{% endif %}</td>{% endif %}
           <td class="angka">{{ r.stok_awal_taksiran | angka_pas }}</td>
-          <td class="angka">{{ r.K1A_TC | rupiah }}</td><td class="angka">{{ r.K1_TC | rupiah }}</td><td class="angka">{{ r.K2_TC | rupiah }}</td><td class="angka">{{ r.K3_TC | rupiah if r.K3_TC is not none else "-" }}</td>
-          <td class="angka">{{ r.K1A_FR | persen(0) }} / {{ r.K2_FR | persen(0) }} / {{ r.K3_FR | persen(0) if r.K3_FR is not none else "-" }}</td>
-          <td class="angka">{{ r.K1A_nilai_terbuang | rupiah }} / {{ r.K2_nilai_terbuang | rupiah }} / {{ r.K3_nilai_terbuang | rupiah if r.K3_nilai_terbuang is not none else "-" }}</td></tr>
+          <td class="angka">{{ r.K1_TC | rupiah }}</td><td class="angka">{{ r.K2_TC | rupiah }}</td><td class="angka">{{ r.K3_TC | rupiah }}</td><td class="angka">{{ r.K4_TC | rupiah if r.K4_TC is not none else "-" }}</td>
+          <td class="angka">{{ r.K1_FR | persen(0) }} / {{ r.K3_FR | persen(0) }} / {{ r.K4_FR | persen(0) if r.K4_FR is not none else "-" }}</td>
+          <td class="angka">{{ r.K1_nilai_terbuang | rupiah }} / {{ r.K3_nilai_terbuang | rupiah }} / {{ r.K4_nilai_terbuang | rupiah if r.K4_nilai_terbuang is not none else "-" }}</td></tr>
       {% endfor %}
       </tbody>
     </table>
     </div>
-    <p class="kecil" style="margin-bottom:0">Jumlah dalam satuan dasar bahan selama periode. Biaya dari taksiran stok awal aktual (K3: rata-rata seed).</p>
+    <p class="kecil" style="margin-bottom:0">Jumlah dalam satuan dasar bahan selama periode. Biaya dari taksiran stok awal aktual (K4: rata-rata seed).</p>
   </details>
   {% endif %}
 </div>
 
-<h2 style="margin:26px 0 0">Uji 28 hari: K1 statis, K2, K3</h2>
+<h2 style="margin:26px 0 0">Uji 28 hari: K2, K3, K4 ({{ kb.n_bahan }} bahan, 5 tingkat stok awal)</h2>
+<p class="kecil" style="margin:4px 0 0">Seluruh {{ kb.n_bahan }} bahan pada 28 hari uji ({{ ev.periode_uji[0] | tgl }} – {{ ev.periode_uji[1] | tgl }}), masing-masing dari 5 tingkat stok awal.
+  K1 tidak ikut di sini karena K1 hanya bisa memutar ulang barang yang tercatat masuk, jadi tidak bisa dimulai dari stok awal buatan dan tidak tersedia untuk bahan
+  tanpa catatan barang masuk. Perbandingan K1–K4 ada pada <a href="#hasil-biaya">Hasil simulasi biaya K1–K4</a>.</p>
 <div class="grid tiga" style="margin-top:12px">
-  {% for v in ["K1", "K2", "K3"] %}
+  {% for v in ["K2", "K3", "K4"] %}
   {% set d = tot[v] %}
   <div class="kartu statistik {{ 'hijau' if d.TC_mean <= tc_min + 0.5 }}">
     <span class="label">{{ nama_varian[v] }}{% if d.TC_mean <= tc_min + 0.5 %} <span class="status hijau">{{ ikon("bintang", "ikon-k") }} biaya terendah</span>{% endif %}</span>
@@ -162,7 +202,7 @@
       <dt>Hari kehabisan stok</dt><dd>{{ d.hari_stockout_mean | angka(1) }} <span class="kecil">bahan-hari</span></dd>
       <dt>Nilai bahan terbuang</dt><dd>{{ d.terbuang_nilai_mean | rupiah }}</dd>
       <dt>Jumlah pemesanan</dt><dd>{{ d.jumlah_pesan_mean | angka(1) }}</dd>
-      {% if v == "K3" %}<dt>Memakai aturan cadangan</dt><dd>{{ d.cadangan_mean | angka(1) }} <span class="kecil">keputusan (state belum pernah ditemui)</span></dd>{% endif %}
+      {% if v == "K4" %}<dt>Memakai aturan cadangan</dt><dd>{{ d.cadangan_mean | angka(1) }} <span class="kecil">keputusan (state belum pernah ditemui)</span></dd>{% endif %}
     </dl>
   </div>
   {% endfor %}
@@ -179,7 +219,7 @@
     <table class="tabel rapat">
       <thead><tr><th>Perbandingan</th><th class="angka">Lebih murah pada</th><th class="angka">Median rasio biaya</th><th class="angka">p Wilcoxon</th><th>Kesimpulan</th></tr></thead>
       <tbody>
-      {% for k, label in [("K3_vs_K1", "K3 vs K1 statis"), ("K3_vs_K2", "K3 vs K2"), ("K2_vs_K1", "K2 vs K1 statis")] %}
+      {% for k, label in [("K4_vs_K2", "K4 vs K2"), ("K4_vs_K3", "K4 vs K3"), ("K3_vs_K2", "K3 vs K2")] %}
         {% set b = kb.banding[k] %}
         <tr><td class="tebal">{{ label }}</td><td class="angka">{{ b.menang }} / {{ b.dari }} bahan</td>
           <td class="angka">{{ b.rasio_median | angka(3) }}</td>
@@ -197,35 +237,35 @@
   <div class="kartu-kepala"><h2>Asal biaya dan sisa stok ({{ ("bahan target" if ev.pemilihan else "bahan utama") if kelompok == "utama" else "semua bahan" }})</h2></div>
   <div class="tabel-wadah">
   <table class="tabel rapat">
-    <thead><tr><th>Komponen</th><th>Cara hitung (setiap bahan, setiap hari)</th>{% for v in ["K1", "K2", "K3"] %}<th class="angka">{{ nama_varian[v].split(" · ")[0] }}</th>{% endfor %}</tr></thead>
+    <thead><tr><th>Komponen</th><th>Cara hitung (setiap bahan, setiap hari)</th>{% for v in ["K2", "K3", "K4"] %}<th class="angka">{{ nama_varian[v].split(" · ")[0] }}</th>{% endfor %}</tr></thead>
     <tbody>
     {% for c, label, cara in [("b_h", "Biaya simpan", "c_h × sisa stok akhir hari; c_h = harga × biaya simpan per hari"),
                               ("b_s", "Biaya kehabisan", "c_s × pemakaian yang tidak terpenuhi (penjualan hilang)"),
                               ("b_w", "Biaya terbuang", "harga × jumlah yang dibuang karena melewati masa simpan"),
                               ("b_o", "Biaya pesan", "c_o × 1 bila ada barang datang dari pesanan")] %}
       <tr><td class="tebal">{{ label }}</td><td class="kecil">{{ cara }}</td>
-        {% for v in ["K1", "K2", "K3"] %}{% set d = tot[v] %}<td class="angka">{{ d[c ~ "_mean"] | rupiah }}
+        {% for v in ["K2", "K3", "K4"] %}{% set d = tot[v] %}<td class="angka">{{ d[c ~ "_mean"] | rupiah }}
           <span class="kecil">({{ (d[c ~ "_mean"] / d.TC_mean) | persen(0) if d.TC_mean else "-" }})</span></td>{% endfor %}</tr>
     {% endfor %}
     </tbody>
     <tfoot><tr class="tebal"><td>Total biaya (TC)</td><td class="kecil">jumlah keempat komponen selama 28 hari</td>
-      {% for v in ["K1", "K2", "K3"] %}<td class="angka">{{ tot[v].TC_mean | rupiah }}</td>{% endfor %}</tr></tfoot>
+      {% for v in ["K2", "K3", "K4"] %}<td class="angka">{{ tot[v].TC_mean | rupiah }}</td>{% endfor %}</tr></tfoot>
   </table>
-  {% if tot.K1.nilai_sisa_mean is defined %}
+  {% if tot.K2.nilai_sisa_mean is defined %}
   <table class="tabel rapat" style="margin-top:6px">
-    <thead><tr><th>Neraca nilai barang (harga beli)</th><th></th>{% for v in ["K1", "K2", "K3"] %}<th class="angka">{{ nama_varian[v].split(" · ")[0] }}</th>{% endfor %}</tr></thead>
+    <thead><tr><th>Neraca nilai barang (harga beli)</th><th></th>{% for v in ["K2", "K3", "K4"] %}<th class="angka">{{ nama_varian[v].split(" · ")[0] }}</th>{% endfor %}</tr></thead>
     <tbody>
-      <tr><td>Nilai stok awal</td><td class="kecil">stok awal simulasi × harga</td>{% for v in ["K1", "K2", "K3"] %}<td class="angka">{{ tot[v].nilai_awal_mean | rupiah }}</td>{% endfor %}</tr>
-      <tr><td>+ Nilai barang datang</td><td class="kecil">pembelian selama periode (bukan bagian TC)</td>{% for v in ["K1", "K2", "K3"] %}<td class="angka">{{ tot[v].nilai_diterima_mean | rupiah }}</td>{% endfor %}</tr>
-      <tr><td>− Nilai terpakai</td><td class="kecil">pemakaian yang terpenuhi</td>{% for v in ["K1", "K2", "K3"] %}<td class="angka">{{ tot[v].nilai_terpakai_mean | rupiah }}</td>{% endfor %}</tr>
-      <tr><td>− Nilai terbuang</td><td class="kecil">sama dengan biaya terbuang</td>{% for v in ["K1", "K2", "K3"] %}<td class="angka">{{ tot[v].terbuang_nilai_mean | rupiah }}</td>{% endfor %}</tr>
-      <tr class="tebal"><td>= Nilai sisa stok akhir {{ ev.periode_uji[1] | tgl }}</td><td class="kecil">yang akan terhitung saat stok opname akhir periode</td>{% for v in ["K1", "K2", "K3"] %}<td class="angka">{{ tot[v].nilai_sisa_mean | rupiah }}</td>{% endfor %}</tr>
+      <tr><td>Nilai stok awal</td><td class="kecil">stok awal simulasi × harga</td>{% for v in ["K2", "K3", "K4"] %}<td class="angka">{{ tot[v].nilai_awal_mean | rupiah }}</td>{% endfor %}</tr>
+      <tr><td>+ Nilai barang datang</td><td class="kecil">pembelian selama periode (bukan bagian TC)</td>{% for v in ["K2", "K3", "K4"] %}<td class="angka">{{ tot[v].nilai_diterima_mean | rupiah }}</td>{% endfor %}</tr>
+      <tr><td>− Nilai terpakai</td><td class="kecil">pemakaian yang terpenuhi</td>{% for v in ["K2", "K3", "K4"] %}<td class="angka">{{ tot[v].nilai_terpakai_mean | rupiah }}</td>{% endfor %}</tr>
+      <tr><td>− Nilai terbuang</td><td class="kecil">sama dengan biaya terbuang</td>{% for v in ["K2", "K3", "K4"] %}<td class="angka">{{ tot[v].terbuang_nilai_mean | rupiah }}</td>{% endfor %}</tr>
+      <tr class="tebal"><td>= Nilai sisa stok akhir {{ ev.periode_uji[1] | tgl }}</td><td class="kecil">yang akan terhitung saat stok opname akhir periode</td>{% for v in ["K2", "K3", "K4"] %}<td class="angka">{{ tot[v].nilai_sisa_mean | rupiah }}</td>{% endfor %}</tr>
     </tbody>
   </table>
   {% endif %}
   </div>
   <div class="kartu-isi kecil">Rata-rata semua run, dijumlah seluruh bahan dalam kelompok; persen = bagian dari total biaya. Klik nama bahan pada tabel
-    Hasil per bahan untuk melihat dasar perhitungan setiap komponen dan catatan harian, termasuk sisa stok setiap akhir hari.{% if tot.K1.nilai_sisa_mean is not defined %}
+    Hasil per bahan untuk melihat dasar perhitungan setiap komponen dan catatan harian, termasuk sisa stok setiap akhir hari.{% if tot.K2.nilai_sisa_mean is not defined %}
     Neraca nilai barang tersedia setelah <a href="/pelatihan">Pelatihan Ulang</a>.{% endif %}</div>
 </div>
 
@@ -256,25 +296,25 @@
     <div class="aksi"><input type="search" placeholder="Saring bahan ..." data-saring-tabel="tabel-sim"></div></div>
   <div class="tabel-wadah" style="max-height:640px;overflow:auto">
   <table class="tabel rapat" id="tabel-sim">
-    <thead><tr><th>Bahan</th><th class="angka">Biaya K1 statis</th><th class="angka">Biaya K2</th><th class="angka">Biaya K3</th>
-      <th class="angka">Fill rate K1 / K2 / K3</th><th class="angka">Hari habis K1 / K2 / K3</th><th class="angka">Terbuang K1 / K2 / K3</th><th>Terbaik</th></tr></thead>
+    <thead><tr><th>Bahan</th><th class="angka">Biaya K2</th><th class="angka">Biaya K3</th><th class="angka">Biaya K4</th>
+      <th class="angka">Fill rate K2 / K3 / K4</th><th class="angka">Hari habis K2 / K3 / K4</th><th class="angka">Terbuang K2 / K3 / K4</th><th>Terbaik</th></tr></thead>
     <tbody>
     {% for r in per %}
-      {% set tcs = {"K1": r.K1_TC, "K2": r.K2_TC, "K3": r.K3_TC} %}
-      {% set mn = [r.K1_TC or 0, r.K2_TC or 0, r.K3_TC or 0] | min %}
+      {% set tcs = {"K2": r.K2_TC, "K3": r.K3_TC, "K4": r.K4_TC} %}
+      {% set mn = [r.K2_TC or 0, r.K3_TC or 0, r.K4_TC or 0] | min %}
       <tr><td><a href="/simulasi/bahan/{{ r.sku }}">{{ r.nama }}</a> <span class="kecil">{{ r.sku }}</span></td>
-        {% for v in ["K1", "K2", "K3"] %}<td class="angka {{ 'tebal' if (tcs[v] or 0) <= mn + 0.5 }}">{{ tcs[v] | rupiah }}</td>{% endfor %}
-        <td class="angka">{{ r.K1_FR | persen(0) }} / {{ r.K2_FR | persen(0) }} / {{ r.K3_FR | persen(0) }}</td>
-        <td class="angka">{{ r.K1_hari_stockout | angka(1) }} / {{ r.K2_hari_stockout | angka(1) }} / {{ r.K3_hari_stockout | angka(1) }}</td>
-        <td class="angka">{{ r.K1_nilai_terbuang | rupiah }} / {{ r.K2_nilai_terbuang | rupiah }} / {{ r.K3_nilai_terbuang | rupiah }}</td>
-        <td>{% for v in ["K1", "K2", "K3"] %}{% if (tcs[v] or 0) <= mn + 0.5 %}<span class="status {{ 'hijau' if v == 'K3' else 'abu' }}">{{ v }}</span> {% endif %}{% endfor %}</td></tr>
+        {% for v in ["K2", "K3", "K4"] %}<td class="angka {{ 'tebal' if (tcs[v] or 0) <= mn + 0.5 }}">{{ tcs[v] | rupiah }}</td>{% endfor %}
+        <td class="angka">{{ r.K2_FR | persen(0) }} / {{ r.K3_FR | persen(0) }} / {{ r.K4_FR | persen(0) }}</td>
+        <td class="angka">{{ r.K2_hari_stockout | angka(1) }} / {{ r.K3_hari_stockout | angka(1) }} / {{ r.K4_hari_stockout | angka(1) }}</td>
+        <td class="angka">{{ r.K2_nilai_terbuang | rupiah }} / {{ r.K3_nilai_terbuang | rupiah }} / {{ r.K4_nilai_terbuang | rupiah }}</td>
+        <td>{% for v in ["K2", "K3", "K4"] %}{% if (tcs[v] or 0) <= mn + 0.5 %}<span class="status {{ 'hijau' if v == 'K4' else 'abu' }}">{{ v }}</span> {% endif %}{% endfor %}</td></tr>
     {% else %}
       <tr><td colspan="8" class="kosong">Tidak ada data.</td></tr>
     {% endfor %}
     </tbody>
   </table>
   </div>
-  <div class="kartu-isi kecil">Diurutkan dari biaya K1 statis terbesar. Biaya per bahan adalah rata-rata 5 stok awal (dan 5 seed untuk K3) selama 28 hari.
+  <div class="kartu-isi kecil">Diurutkan dari biaya K2 terbesar. Biaya per bahan adalah rata-rata 5 stok awal (dan 5 seed untuk K4) selama 28 hari.
     Klik nama bahan untuk melihat asal biaya, neraca barang, dan sisa stok setiap hari.</div>
 </div>
 {% endif %}
@@ -285,7 +325,7 @@
 <script>
 (function () {
   const W = PrediStok.warna, t = {{ ev.kebijakan[kelompok].total | json | safe }}, kv = {{ ev.kurva | json | safe }};
-  const V = ["K1", "K2", "K3"], rp = (v) => "Rp " + PrediStok.angka(Math.round(v));
+  const V = ["K2", "K3", "K4"], rp = (v) => "Rp " + PrediStok.angka(Math.round(v));
   const seri = [["b_h_mean", "Simpan", W.biru], ["b_s_mean", "Kehabisan stok", W.merah], ["b_w_mean", "Terbuang", W.oranye], ["b_o_mean", "Pesan", W.abu]];
   PrediStok.grafik("grafik-biaya", { type: "bar",
     data: { labels: V, datasets: seri.map(([k, l, c]) => ({ label: l, data: V.map((v) => t[v][k]), backgroundColor: c, borderRadius: 3 })) },

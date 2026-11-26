@@ -5,7 +5,7 @@ Untuk keputusan akhir hari t (setelah stok keluar hari t tercatat; pesanan tiba 
  2. XGBoost memprediksi pemakaian t+1 .. t+7,
  3. ROP dinamis (Persamaan 21), posisi persediaan = stok + pesanan belum tiba (Persamaan 24),
     stok hampir kedaluwarsa E_t, dan stok target (Persamaan 25),
- 4. state (Persamaan 27) -> aksi terbaik Q-table; state yang belum pernah ditemui -> aturan cadangan K2 (26),
+ 4. state (Persamaan 27) -> aksi terbaik Q-table; state yang belum pernah ditemui -> aturan cadangan K3 (26),
  5. peringatan stok kritis bila posisi <= ROP, jumlah dalam kelipatan kemasan dan tidak melebihi kapasitas
     simpan, simpan sebagai riwayat,
  6. ROP dinamis menjadi Stok Minimum bahan (ikut diekspor pada sheet berformat majoo).
@@ -105,9 +105,9 @@ def hitung(db: Session, t: date, simpan: bool = True, perbarui_stok_minimum: boo
         flag = ip <= rop
         s, a = aksi_q(tabel, ip, float(yh[0]), umur["hampir_kedaluwarsa"], flag)
         k_pak = float(b.kemasan_isi or tabel["k"])
-        q_k2 = min(q_order_up_to(ip, rop, out, k_pak), batas_kapasitas(tabel, ip, k_pak))
+        q_k3 = min(q_order_up_to(ip, rop, out, k_pak), batas_kapasitas(tabel, ip, k_pak))
         if a is None:
-            sumber, q = "cadangan_k2", q_k2
+            sumber, q = "cadangan_k2", q_k3
         else:
             sumber, q = "q_learning", a * float(tabel["k"])
         r = lama.get(b.id) or Rekomendasi(tanggal=t, bahan_id=b.id)
@@ -116,7 +116,7 @@ def hitung(db: Session, t: date, simpan: bool = True, perbarui_stok_minimum: boo
         r.prediksi = [round(float(x), 4) for x in yh]
         r.rop, r.target, r.sigma_e = float(rop), float(out), float(sigma)
         r.hampir_kedaluwarsa, r.kedaluwarsa = umur["hampir_kedaluwarsa"], umur["kedaluwarsa"]
-        r.kritis, r.state, r.sumber, r.jumlah, r.jumlah_k2 = bool(flag), int(s), sumber, float(q), float(q_k2)
+        r.kritis, r.state, r.sumber, r.jumlah, r.jumlah_k2 = bool(flag), int(s), sumber, float(q), float(q_k3)
         r.dibuat = datetime.now()
         r.bahan = b
         if simpan and r.id is None:

@@ -4,7 +4,7 @@
 {% block isi %}
 <div class="kartu">
   <div class="kartu-kepala">
-    <h1>Rekomendasi Pemesanan <span class="bantuan" title="Alur Gambar 3: prediksi XGBoost -> ROP dinamis -> state -> Q-table (atau aturan cadangan order-up-to K2)">{{ ikon("tanya", "ikon", 1.8) }}</span></h1>
+    <h1>Rekomendasi Pemesanan <span class="bantuan" title="Alur Gambar 3: prediksi XGBoost -> ROP dinamis -> state -> Q-table (atau aturan cadangan order-up-to K3)">{{ ikon("tanya", "ikon", 1.8) }}</span></h1>
     <div class="aksi">
       <a class="tautan-aksi" href="/rekomendasi/riwayat">{{ ikon("riwayat") }} Riwayat</a>
       {% if t %}<a class="tautan-aksi" href="/rekomendasi/ekspor?tanggal={{ t }}">{{ ikon("unduh") }} Ekspor</a>{% endif %}
@@ -122,8 +122,8 @@
               {% endif %}
             </td>
             <td>{% if r.sumber == "q_learning" %}<span class="status biru" title="aksi terbaik Q-table">Q-Learning</span>
-              {% else %}<span class="status abu" title="state belum pernah ditemui saat pelatihan">Cadangan K2</span>{% endif %}
-              {% if (r.jumlah - r.jumlah_k2) | abs > 0.000001 %}<br><span class="kecil" title="jumlah menurut aturan order-up-to K2">K2: {{ r.jumlah_k2 | angka_pas }}</span>{% endif %}</td>
+              {% else %}<span class="status abu" title="state belum pernah ditemui saat pelatihan">Cadangan K3</span>{% endif %}
+              {% if (r.jumlah - r.jumlah_k2) | abs > 0.000001 %}<br><span class="kecil" title="jumlah menurut aturan order-up-to K3">K3: {{ r.jumlah_k2 | angka_pas }}</span>{% endif %}</td>
             <td>{% if r.kritis %}<span class="status merah">{{ ikon("segitiga", "ikon-k") }} Kritis</span>{% else %}<span class="status hijau">Aman</span>{% endif %}</td>
             <td><a href="/rekomendasi/{{ r.id }}" title="Mengapa jumlah ini?" style="color:#2b2f33">{{ ikon("mata") }}</a></td>
           </tr>

@@ -126,7 +126,7 @@ def ekspor(tanggal: str = "", db: Session = Depends(get_db)):
         "Stok Target": round(r.target, 2), "Hampir Kedaluwarsa": round(r.hampir_kedaluwarsa, 2),
         "Rekomendasi Pesan": round(r.jumlah, 2),
         "Rekomendasi (kemasan)": round(r.jumlah / r.bahan.kemasan_isi, 2) if r.bahan.kemasan_isi else None,
-        "Kemasan": r.bahan.kemasan_nama, "Sumber": "Q-Learning" if r.sumber == "q_learning" else "Aturan cadangan K2",
+        "Kemasan": r.bahan.kemasan_nama, "Sumber": "Q-Learning" if r.sumber == "q_learning" else "Aturan cadangan K3",
         "Status": "Kritis" if r.kritis else "Aman"} for r in sorted(rows, key=lambda r: r.bahan.nama)])
     data = IE.buku_tabel("Rekomendasi Pemesanan", df, [["Keputusan akhir hari", tgl(t) if t else "-"],
                                                        ["Pesanan tiba", tgl(t + timedelta(days=1)) if t else "-"]])

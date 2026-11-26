@@ -17,7 +17,7 @@
       <div class="statistik" style="padding:0"><span class="label">Posisi stok vs ROP dinamis</span>
         <span class="nilai {{ 'minus' if r.kritis }}">{{ r.posisi | stok }} <small>/ {{ r.rop | angka_pas }}</small></span>
         <span class="bawah">stok {{ r.stok | stok }} + dalam perjalanan {{ r.dalam_perjalanan | stok }}</span></div>
-      <div class="statistik" style="padding:0"><span class="label">Pembanding K2 (order-up-to)</span>
+      <div class="statistik" style="padding:0"><span class="label">Pembanding K3 (order-up-to)</span>
         <span class="nilai">{{ r.jumlah_k2 | angka_pas }} <small>{{ b.satuan }}</small></span>
         <span class="bawah">target {{ r.target | angka_pas }} − posisi, dibulatkan ke kemasan {{ b.kemasan_isi | angka_pas }}</span></div>
     </div>
@@ -56,7 +56,7 @@
         ke depan yang didiskon (bernilai negatif); di antara aksi yang muat di kapasitas simpan, aksi dengan nilai tertinggi (biaya terendah) dipilih.
         Batang abu-abu belum pernah dicoba pada state ini; batang bergaris merah melebihi kapasitas simpan.</p>
       {% elif info %}
-      <p>State ini belum pernah ditemui selama pelatihan, sehingga sistem memakai aturan cadangan order-up-to K2 (Gambar 3).</p>
+      <p>State ini belum pernah ditemui selama pelatihan, sehingga sistem memakai aturan cadangan order-up-to K3 (Gambar 3).</p>
       {% else %}
       <p class="kecil">Q-table model yang membuat rekomendasi ini tidak lagi aktif.</p>
       {% endif %}

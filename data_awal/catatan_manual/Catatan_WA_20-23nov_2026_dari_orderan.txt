@@ -1,0 +1,195 @@
+[11/24, 19:15] asumsi dari orderan: Barang masuk hari ini tanggal 20 nov 2026
+
+*kitchen lafabrica* :
+* beras 10kg
+* ayam penyet 5 ekor
+* ayam dada manis 2kg
+* daging sapi 1/2kg
+* cumi 1kg
+* udang 1kg
+* bakso 1/2kg
+* bwng putih kupas 1/2kg
+* cbe merah 1/2kg
+* cbe caplak 1/4
+* bombay 1/2kg
+* brokoli 1kg
+* timun 2kg
+* slada 1kg
+* tepung roti 1kg
+* sajiku 2bks
+* tepung adabi 2bks
+* totole 2bks
+* daun pre 1/2kg
+* janten 1/2kg
+* jeruk nipis 1/2kg
+* daging asap 1 bks
+* minyak mkan 1 dus
+* saos cbe 3bks
+* kecap bngo 1bks
+* risol mayo 8 pcs
+* pizza mashroom 6 pcs
+
+*bar (belakang) lafabrica* :
+1. Gula 5 kg
+2. Milo 1 pack
+3. Coklat bubuk 1 pack
+4. skm coklat 2 kaleng
+5. Serai 3 kg
+6. Madu 2 botol
+7. Alpukat 3 kg
+8. Jambu merah 3 kg
+9. Wortel 1 kg
+10. Jeruk 5 kg
+11. Buah naga 3 kg
+12. Timun 3 kg
+13. Sawi manis 1 kg
+[11/24, 19:15] asumsi dari orderan: Barang masuk hari ini tanggal 21 nov 2026
+
+*bar (belakang) lafabrica* :
+1. Milo 1 pack
+2. Coklat 1 pack
+3. Madu 3 botol
+4. Telur anyam kampoeng 1 papan
+5. avocado 3 kg
+6. Jeruk 3 kg
+7. Cup dingin 5 pack
+8. Sedotan 3 pack
+
+*kitchen lafabrica* :
+* beras 10 kg
+* daging sapi 1/2kg
+* ayam penyet 7  ekor
+* ayam spesial 2kg
+* cumi 1kg
+* udang 1kg
+* Kerupuk 3bks
+* Pisang 2 sisir
+* Brokoli 1kg
+* Selada 1kg
+* Sawi hijau 1kg
+* Sawi putih 1/2kg
+* Wartel 1/4
+* Arcis 1/4
+* Paprica hijau 2 buah
+* Paprica merah 2 buah
+* Cabe kecil 1/2kg
+* Cabe hijau 1/2kg
+* Srikaya 2pcs
+* Kentang goreng 3 bks
+* Bawang putih kupas 1/2kg
+* bwng merah kupas 1/2kg
+* Terong 1kg
+* Timun 2kg
+* Ifumie 1bks
+* Kwetiau 2kg
+* Mie aceh 4kg
+* Spageti 2bks
+* Saori lada hitam 2btol
+
+*mkan karyawan*
+* ayam 3¹/²kg
+* beras 2kg
+[11/24, 19:15] asumsi dari orderan: Barang masuk hari ini tanggal 22 nov 2026
+
+*bar (belakang) lafabrica* :
+1. Gula 5 kg
+2. Milo 1 pack
+3. Coklat 1 pack
+4. Madu 3 botol
+5. Telur anyam kampoeng 1 papan
+6. Alpukat 3 kg
+7. Semangka 2 buah
+8. Jeruk 5 kg
+9. Cup dinging 5 pack
+
+*bar (depan) lafabrica* :
+- gula 5kg
+- strawberry 3 pack
+- jeruk nipis 1/2 kg
+
+*kitchen lafabrica* :
+* beras 10 kg
+* daging 1/2kg
+* ayam penyet 7 ekor
+* ayam spesial 2kg
+* ayam dada 2kg
+* cumi 1kg
+* udang 1kg
+* bakso ikan 1kg
+* cbe merah 1kg
+* cbe rawit 1/2kg
+* cbe hijau 1/2kg
+* cabe caplak 1/4
+* bwng merah kupas 1/2kg
+* bwng putih kupas 1/2kg
+* timun 3kg
+* tomat 1kg
+* terong 1kg
+* brokoli 1kg
+* bunga kol 1kg
+* tauge 1/2kg
+* daun pre 1/2 kg
+* kol 1kg
+* slada 1kg
+* bombai 1/2kg
+* paprika merah 1buah
+* paprika hijau 1buah
+* mie telur 2bks
+* indomi goreng 10 bks
+* indomi kari 10 bks
+* kwitiau 3kg
+* sawi manis 1/2kg
+* minyak mkan 1dus
+* telur 5ppn
+* kincung 1/4
+* tpung roti 1kg
+* sajiku 2 bks
+* totole 3 bks
+* sasa 3 bks
+* tepung adabi 2bks
+* saos cbe 2bks
+* kerupuk 2bks
+* kentang 3bks
+* sosis 1bks
+* mantao 2bks
+* lumpia ayam 3 pax
+* siomay ayam 3 pax
+* udang kering 2 ons
+* ubi roti 3 kg
+* bumbu racik 1 renteng
+* saori saos tiram 2btol
+* kecap asin 1 botol
+* kecap bngo 1 botol
+* merica bulat hitam 10 rb
+* merica bulat putih 10 rb
+* spagetti 2bks
+* pasta tomyam 1btol
+* mie aceh 2kg
+[11/24, 19:15] asumsi dari orderan: Barang masuk hari ini tanggal 23 nov 2026
+
+*kitchen lafabrica* :
+* Ayam penyet 5 ekor
+* Beras 5kg
+* Daging sapi 1/2kg
+* Cbe merah 1kg
+* Timun 2kg
+* Tempe 2 btang
+
+*mkan karyawan*
+* Ayam 4 kg ( potong mkan)
+* Cbe hijau 1/2kg
+* Cbe rawit 1/4
+* Minyak mkn 1/2kg
+
+*bar (depan) lafabrica* :
+- monin peach 2
+- monin grenadine 2
+- monin tangerine 2
+- dripp strawberry pulp 1
+- dripp caramel saus 1
+- powder chocolate denali 1
+- powder matcha denali 1
+- teh bendera 3
+- sari lemon 5
+- teh jasmine kantong 1
+- SKM coklat 2

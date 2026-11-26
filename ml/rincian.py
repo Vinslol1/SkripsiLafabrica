@@ -1,4 +1,4 @@
-"""Rincian hasil simulasi K1/K2/K3 dan K1 aktual: dari mana setiap komponen biaya berasal, neraca barang, dan
+"""Rincian hasil simulasi K1–K4: dari mana setiap komponen biaya berasal, neraca barang, dan
 sisa stok akhir setiap hari (setara hasil stok opname di akhir hari, setelah pemakaian hari itu).
 
 Komponen biaya hari t (Persamaan 31), dijumlah selama periode menjadi total biaya (Persamaan 34):
@@ -16,15 +16,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from ml import penamaan as PN
 from ml import simulasi as SIM
 
 BERKAS = "simulasi_harian.npz"
 PARAMETER = ("k", "tau", "c_h", "c_s", "c_w", "c_o", "rop1", "q1", "kap", "d_bar", "sigma")
-VARIAN_UJI = ("K1", "K2", "K3")
-VARIAN_AKTUAL = ("K1A", "K1", "K2", "K3")
-NAMA_VARIAN = {"K1A": "K1 aktual", "K1": "K1 statis", "K2": "K2", "K3": "K3"}
+VARIAN_UJI = ("K2", "K3", "K4")
+VARIAN_AKTUAL = ("K1", "K2", "K3", "K4")
+NAMA_VARIAN = {"K1": "K1", "K2": "K2", "K3": "K3", "K4": "K4"}
 AWAL_CONTOH = 1.0       # run contoh: stok awal 1 x rata-rata pemakaian harian (tingkat tengah dari 5)
-SEED_CONTOH = 0         # run contoh K3: seed pertama
+SEED_CONTOH = 0         # run contoh K4: seed pertama
 
 
 # ------------------------------------------------------------------------------------------- simpan dan muat
@@ -33,7 +34,7 @@ def tanggal_periode(mulai, sampai) -> list:
 
 
 def simpan(h: dict, folder) -> Path:
-    """Simpan rincian harian semua run uji 28 hari (dan K1 aktual bila ada) ke folder artefak."""
+    """Simpan rincian harian semua run uji 28 hari (dan K1 bila ada) ke folder artefak."""
     par = h["par_uji"]
     out = {"skus": np.array(h["skus"]), "tanggal": np.array(tanggal_periode(*h["periode_uji"])),
            "d": np.asarray(h["d_test"], float)}
@@ -53,6 +54,7 @@ def simpan(h: dict, folder) -> Path:
         for v, x in a["harian"].items():
             for c, arr in x.items():
                 out[f"aktual_{v}_{c}"] = arr
+    out[PN.PENANDA] = np.array(PN.VERSI)
     f = Path(folder) / BERKAS
     np.savez_compressed(f, **out)
     return f
@@ -60,7 +62,7 @@ def simpan(h: dict, folder) -> Path:
 
 def _runs(z, awalan: str, varian) -> dict:
     out = {}
-    for key in z.files:
+    for key in z:
         if not key.startswith(awalan):
             continue
         sisa = key[len(awalan):]
@@ -75,17 +77,20 @@ def muat(folder) -> dict | None:
     f = Path(folder) / BERKAS
     if not f.exists():
         return None
-    with np.load(f, allow_pickle=False) as z:
-        skus = z["skus"].tolist()
-        par = {p: z[f"par_{p}"] for p in PARAMETER if f"par_{p}" in z.files}
-        uji = {"skus": skus, "tanggal": z["tanggal"].tolist(), "d": z["d"], "par": par,
-               "runs": _runs(z, "uji_", VARIAN_UJI)}
-        aktual = None
-        if "aktual_idx" in z.files:
-            idx = z["aktual_idx"].astype(int)
-            aktual = {"skus": [skus[i] for i in idx], "tanggal": z["aktual_tanggal"].tolist(), "d": z["aktual_d"],
-                      "masuk": z["aktual_masuk"], "stok_taksiran": z["aktual_stok_taksiran"],
-                      "par": {p: v[idx] for p, v in par.items()}, "runs": _runs(z, "aktual_", VARIAN_AKTUAL)}
+    with np.load(f, allow_pickle=False) as npz:
+        z = {k: npz[k] for k in npz.files}
+    if PN.PENANDA not in z:                       # model sebelum penamaan versi 2: K1A/K1/K2/K3 -> K1/K2/K3/K4
+        z = {PN.kode_baru(k): v for k, v in z.items()}
+    skus = z["skus"].tolist()
+    par = {p: z[f"par_{p}"] for p in PARAMETER if f"par_{p}" in z}
+    uji = {"skus": skus, "tanggal": z["tanggal"].tolist(), "d": z["d"], "par": par,
+           "runs": _runs(z, "uji_", VARIAN_UJI)}
+    aktual = None
+    if "aktual_idx" in z:
+        idx = z["aktual_idx"].astype(int)
+        aktual = {"skus": [skus[i] for i in idx], "tanggal": z["aktual_tanggal"].tolist(), "d": z["aktual_d"],
+                  "masuk": z["aktual_masuk"], "stok_taksiran": z["aktual_stok_taksiran"],
+                  "par": {p: v[idx] for p, v in par.items()}, "runs": _runs(z, "aktual_", VARIAN_AKTUAL)}
     return {"uji": uji, "aktual": aktual}
 
 
@@ -103,7 +108,7 @@ def indeks_run(bagian: dict, v: str, b: int, awal: float, seed: int = 0) -> int 
     if x is None:
         return None
     m = (x["b"] == b) & np.isclose(x["stok_awal"], awal)
-    if v == "K3":
+    if v == "K4":
         m &= x["seed"] == seed
     j = np.flatnonzero(m)
     return int(j[0]) if len(j) else None
@@ -131,6 +136,8 @@ def harian_run(bagian: dict, v: str, b: int, awal: float, seed: int = 0) -> pd.D
     df["biaya"] = df[["b_h", "b_s", "b_w", "b_o"]].sum(axis=1)
     if "masuk" in bagian:
         df.insert(4, "masuk_tercatat", np.asarray(bagian["masuk"][b], float))
+        tambah = np.asarray(x["tambah"][j], float) if "tambah" in x else np.zeros(len(df))
+        df.insert(5, "tambahan", tambah)
     return df
 
 
@@ -157,24 +164,29 @@ KETERANGAN = [
                                  "siang: bahan dipakai FIFO (batch tertua dulu); akhir hari: sisa stok dihitung, lalu "
                                  "kebijakan memutuskan pesanan untuk besok."),
     ("Stok sebelum", "sisa stok akhir hari sebelumnya; hari pertama = stok awal simulasi."),
-    ("ROP", "titik pesan ulang yang dipakai saat memutuskan pesanan yang datang hari itu (K1 statis: tetap; K2 dan K3: "
-            "dari prediksi XGBoost). K1 aktual tidak memakai ROP."),
+    ("ROP", "titik pesan ulang yang dipakai saat memutuskan pesanan yang datang hari itu (K2: tetap; K3 dan K4: "
+            "dari prediksi XGBoost). K1 tidak memakai ROP."),
     ("Sisa stok akhir hari", "stok yang tersisa setelah pemakaian hari itu, setara hasil stok opname di akhir hari."),
     ("Neraca barang", "stok awal + barang datang = terpakai + terbuang + sisa stok akhir periode (selisih = 0)."),
     ("Nilai (Rp)", "jumlah x harga per satuan dasar."),
-    ("Rata-rata semua run", "uji 28 hari: 5 tingkat stok awal (0; 0,5; 1; 2; 3 x rata-rata pemakaian harian), K3 juga 5 "
-                            "seed. K1 aktual: taksiran stok awal aktual (K3: 5 seed)."),
-    ("Run contoh harian", "uji 28 hari: stok awal 1 x rata-rata pemakaian harian, K3 seed pertama. K1 aktual: taksiran "
-                          "stok awal aktual, K3 seed pertama. Total run contoh sama dengan baris run itu di lembar Semua Run."),
+    ("Barang masuk tambahan (augmentasi K1)", "data hasil augmentasi, bukan data asli: bila stok layak pakai ditambah "
+                                              "barang masuk tercatat kurang dari pemakaian aktual hari itu, selisihnya "
+                                              "dianggap pembelian yang tidak tercatat. Barang datang K1 = tercatat + "
+                                              "tambahan, sehingga K1 tidak pernah kehabisan stok."),
+    ("Rata-rata semua run", "uji 28 hari: 5 tingkat stok awal (0; 0,5; 1; 2; 3 x rata-rata pemakaian harian), K4 juga 5 "
+                            "seed. K1: taksiran stok awal aktual (K4: 5 seed)."),
+    ("Run contoh harian", "uji 28 hari: stok awal 1 x rata-rata pemakaian harian, K4 seed pertama. K1: taksiran "
+                          "stok awal aktual, K4 seed pertama. Total run contoh sama dengan baris run itu di lembar Semua Run."),
 ]
 
 KOLOM_HARIAN_EXCEL = {
     "tanggal": "Tanggal", "stok_sebelum": "Stok sebelum (sisa kemarin)", "rop": "ROP",
-    "masuk_tercatat": "Barang masuk tercatat", "datang": "Barang datang (dipesan kemarin)",
+    "masuk_tercatat": "Barang masuk tercatat",
+    "tambahan": "Barang masuk tambahan (augmentasi K1)", "datang": "Barang datang (dipesan kemarin)",
     "terbuang": "Terbuang (lewat masa simpan)", "pemakaian": "Pemakaian", "terpenuhi": "Terpenuhi",
     "kurang": "Kekurangan", "sisa_akhir": "Sisa stok akhir hari (stok opname)", "b_h": "Biaya simpan",
     "b_s": "Biaya kehabisan", "b_w": "Biaya terbuang", "b_o": "Biaya pesan", "biaya": "Total biaya hari ini",
-    "cadangan": "K3 memakai aturan cadangan",
+    "cadangan": "K4 memakai aturan cadangan",
 }
 
 
@@ -250,11 +262,11 @@ def tabel_harian_contoh(bagian: dict, info: pd.DataFrame, varian, awal: float, s
             df.insert(0, "Nama", info["nama"].get(s, s))
             df.insert(0, "SKU", s)
             df.insert(0, "Kebijakan", NAMA_VARIAN[v])
-            if v != "K3":
+            if v != "K4":
                 df["cadangan"] = None
             else:
                 df["cadangan"] = np.where(df["cadangan"], "ya", "")
-            if v == "K1A":
+            if v == "K1":
                 df["rop"] = None
             out.append(df)
     if not out:
@@ -314,7 +326,7 @@ def tulis_lembar(w, h: dict, ev: dict, info: pd.DataFrame):
         for label, nama in (("utama", "Bahan utama"), ("semua", "Semua bahan")):
             kb = ra["kebijakan"][label]
             if kb["n_bahan"]:
-                rows += _baris_kelompok(kb["total"], nama, kb["n_bahan"], f"K1 aktual ({p_a}), taksiran stok awal")
+                rows += _baris_kelompok(kb["total"], nama, kb["n_bahan"], f"Periode aktual ({p_a}), taksiran stok awal")
     _tulis(w, pd.DataFrame(rows), "Rincian Biaya", beku_kolom=3)
 
     par = h["par_uji"]
@@ -335,7 +347,7 @@ def tulis_lembar(w, h: dict, ev: dict, info: pd.DataFrame):
                  "stok_taksiran": a["stok_awal"], "par": {p: np.asarray(par[p], float)[idx] for p in PARAMETER},
                  "runs": a["harian"]}
         runs_a = a["runs"][a["runs"]["stok_awal"] == SIM.STOK_AWAL_TAKSIRAN]
-        _tulis(w, tabel_per_bahan(runs_a, bag_a["par"], a["skus"], info, utama, VARIAN_AKTUAL), "Rincian K1 Aktual",
+        _tulis(w, tabel_per_bahan(runs_a, bag_a["par"], a["skus"], info, utama, VARIAN_AKTUAL), "Rincian Periode Aktual",
                beku_kolom=5, lebar={"Nama": 28})
-        _tulis(w, tabel_harian_contoh(bag_a, info, VARIAN_AKTUAL, SIM.STOK_AWAL_TAKSIRAN), "Harian K1 Aktual",
+        _tulis(w, tabel_harian_contoh(bag_a, info, VARIAN_AKTUAL, SIM.STOK_AWAL_TAKSIRAN), "Harian Periode Aktual",
                beku_kolom=6, lebar={"Nama": 28})

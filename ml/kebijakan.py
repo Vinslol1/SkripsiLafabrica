@@ -1,4 +1,4 @@
-"""Rumus persediaan: ROP statis dan EOQ (K1), ROP dinamis dan order-up-to (K2), serta diskretisasi state.
+"""Rumus persediaan: ROP statis dan EOQ (K2), ROP dinamis dan order-up-to (K3), serta diskretisasi state.
 
 Penomoran persamaan mengikuti proposal (v4):
   (1)  ROP = d*L + SS            (2)  SS = Z * sigma_d * sqrt(L)       (3)  EOQ = sqrt(2*d*c_o / c_h)
@@ -52,7 +52,7 @@ def eoq(d_bar: float, c_o: float, c_h: float) -> float:
 
 
 def q_klasik(d_bar: float, c_o: float, c_h: float, tau: float, k: float) -> float:
-    """Jumlah pesanan tetap K1: min(EOQ, d*tau) dibulatkan ke atas ke kelipatan kemasan (minimal 1 kemasan)."""
+    """Jumlah pesanan tetap K2: min(EOQ, d*tau) dibulatkan ke atas ke kelipatan kemasan (minimal 1 kemasan)."""
     q = min(eoq(d_bar, c_o, c_h), d_bar * tau)
     return max(k, k * math.ceil(q / k - 1e-9)) if k > 0 else q
 
